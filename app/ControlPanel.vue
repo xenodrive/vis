@@ -8,7 +8,40 @@
         placeholder="Send a message..."
         @keydown="handleKeydown"
         @keydown.enter.ctrl.prevent="$emit('send')"
+        @paste="handlePaste"
+        @drop="handleDrop"
+        @dragover.prevent
+        @dragenter.prevent
       ></textarea>
+      <input
+        ref="fileInputRef"
+        class="file-input"
+        type="file"
+        :accept="acceptMime"
+        multiple
+        @change="handleFileChange"
+      />
+      <div v-if="attachments.length > 0" class="attachment-list">
+        <div v-for="item in attachments" :key="item.id" class="attachment-item">
+          <img
+            v-if="item.mime.startsWith('image/')"
+            class="attachment-thumb"
+            :src="item.dataUrl"
+            :alt="item.filename"
+          />
+          <div class="attachment-meta">
+            <div class="attachment-name">{{ item.filename }}</div>
+            <div class="attachment-type">{{ item.mime }}</div>
+          </div>
+          <button
+            type="button"
+            class="attachment-remove"
+            @click="$emit('remove-attachment', item.id)"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
       <div v-if="commandPopupOpen" class="command-popup">
         <div
           v-for="(command, index) in commandMatches"
@@ -71,6 +104,13 @@
         </div>
       </div>
       <button
+        type="button"
+        class="control-button attach-button"
+        @click="triggerFileInput"
+      >
+        Attach
+      </button>
+      <button
         v-if="isThinking"
         type="button"
         class="control-button stop send-button"
@@ -112,6 +152,7 @@ const props = defineProps<{
   isThinking: boolean;
   canAbort: boolean;
   commands: CommandOption[];
+  attachments: Array<{ id: string; filename: string; mime: string; dataUrl: string }>;
 }>();
 
 const emit = defineEmits<{
@@ -121,6 +162,8 @@ const emit = defineEmits<{
   (event: 'update:selected-thinking', value: string): void;
   (event: 'send'): void;
   (event: 'abort'): void;
+  (event: 'add-attachments', files: File[]): void;
+  (event: 'remove-attachment', id: string): void;
 }>();
 
 const messageValue = computed({
@@ -129,7 +172,9 @@ const messageValue = computed({
 });
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 const activeCommandIndex = ref(0);
+const acceptMime = 'image/png,image/jpeg,image/gif,image/webp';
 
 const slashQuery = computed(() => {
   const value = messageValue.value;
@@ -247,6 +292,36 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+function triggerFileInput() {
+  fileInputRef.value?.click();
+}
+
+function handleFileChange(event: Event) {
+  const input = event.target as HTMLInputElement | null;
+  const files = input?.files ? Array.from(input.files) : [];
+  if (files.length > 0) emit('add-attachments', files);
+  if (input) input.value = '';
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const items = event.clipboardData?.items ? Array.from(event.clipboardData.items) : [];
+  if (items.length === 0) return;
+  const files = items
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+  if (files.length === 0) return;
+  event.preventDefault();
+  emit('add-attachments', files);
+}
+
+function handleDrop(event: DragEvent) {
+  const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
+  if (files.length === 0) return;
+  event.preventDefault();
+  emit('add-attachments', files);
+}
+
 const modeValue = computed({
   get: () => props.selectedMode,
   set: (value) => emit('update:selected-mode', value),
@@ -347,6 +422,67 @@ const thinkingValue = computed({
   min-height: 0;
 }
 
+.file-input {
+  display: none;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  background: rgba(2, 6, 23, 0.6);
+}
+
+.attachment-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  object-fit: cover;
+  background: #0b1320;
+}
+
+.attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 12px;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-type {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.attachment-remove {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
 .command-popup {
   position: absolute;
   left: 0;
@@ -414,5 +550,9 @@ const thinkingValue = computed({
 
 .send-button {
   margin-left: auto;
+}
+
+.attach-button {
+  height: 32px;
 }
 </style>

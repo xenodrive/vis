@@ -113,12 +113,15 @@
         :is-thinking="isThinking"
         :can-abort="canAbort"
         :commands="commandOptions"
+        :attachments="attachments"
         v-model:message-input="messageInput"
         v-model:selected-mode="selectedMode"
         v-model:selected-model="selectedModel"
         v-model:selected-thinking="selectedThinking"
         @send="sendMessage"
         @abort="abortSession"
+        @add-attachments="handleAddAttachments"
+        @remove-attachment="removeAttachment"
       />
     </footer>
     <ProjectPicker
@@ -176,6 +179,13 @@ const SHIKI_LANGS = [
   'php',
 ];
 
+const ATTACHMENT_MIME_ALLOWLIST = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
 type FileReadEntry = {
   time: number;
   expiresAt: number;
@@ -188,6 +198,7 @@ type FileReadEntry = {
   scrollDistance: number;
   scrollDuration: number;
   html: string;
+  attachments?: MessageAttachment[];
   isWrite: boolean;
   isMessage: boolean;
   isSubagentMessage?: boolean;
@@ -250,6 +261,20 @@ type ShellSession = {
   sessionId: string;
 };
 
+type Attachment = {
+  id: string;
+  filename: string;
+  mime: string;
+  dataUrl: string;
+};
+
+type MessageAttachment = {
+  id: string;
+  url: string;
+  mime: string;
+  filename: string;
+};
+
 const queue = ref<FileReadEntry[]>([]);
 const appEl = ref<HTMLDivElement | null>(null);
 const outputEl = ref<HTMLElement | null>(null);
@@ -264,6 +289,7 @@ const reasoningTitleBySessionId = new Map<string, string>();
 const sessionStatusById = new Map<string, 'busy' | 'idle'>();
 const reasoningCloseTimers = new Map<string, number>();
 const lastReasoningMessageIdByKey = new Map<string, string>();
+const messageAttachmentsById = new Map<string, MessageAttachment[]>();
 const globalEventHooks = new Set<(payload: unknown, eventType: string) => void>();
 const dragState = ref<{
   entry: FileReadEntry;
@@ -408,6 +434,7 @@ const projectError = ref('');
 const worktreeError = ref('');
 const sessionError = ref('');
 const messageInput = ref('');
+const attachments = ref<Attachment[]>([]);
 const sendStatus = ref('Ready');
 const isSending = ref(false);
 const isAborting = ref(false);
@@ -456,7 +483,11 @@ const allowedSessionIds = computed(() => {
 });
 
 const canSend = computed(() =>
-  Boolean(selectedSessionId.value && messageInput.value.trim().length > 0 && !isSending.value),
+  Boolean(
+    selectedSessionId.value &&
+      !isSending.value &&
+      (messageInput.value.trim().length > 0 || attachments.value.length > 0),
+  ),
 );
 
 const isThinking = computed(() =>
@@ -697,6 +728,92 @@ function parseShellArgs(input: string) {
   if (!trimmed) return { command: undefined, args: [] as string[] };
   const parts = trimmed.split(/\s+/g).filter(Boolean);
   return { command: parts[0], args: parts.slice(1) };
+}
+
+function isRenderableImageUrl(url: string) {
+  return (
+    url.startsWith('data:') ||
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('blob:')
+  );
+}
+
+function normalizeAttachments(list: MessageAttachment[]) {
+  const seen = new Set<string>();
+  const result: MessageAttachment[] = [];
+  list.forEach((item) => {
+    const key = `${item.url}|${item.mime}|${item.filename}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(item);
+  });
+  return result;
+}
+
+function extractImageAttachmentsFromParts(parts: unknown) {
+  if (!Array.isArray(parts)) return [] as MessageAttachment[];
+  const attachments: MessageAttachment[] = [];
+  parts.forEach((part, index) => {
+    if (!part || typeof part !== 'object') return;
+    const record = part as Record<string, unknown>;
+    const type = typeof record.type === 'string' ? record.type : '';
+    if (type !== 'file' && type !== 'image') return;
+    const mime = typeof record.mime === 'string' ? record.mime : '';
+    if (!mime.startsWith('image/')) return;
+    const url =
+      (typeof record.url === 'string' ? record.url : undefined) ??
+      (typeof record.dataUrl === 'string' ? record.dataUrl : undefined) ??
+      '';
+    if (!url || !isRenderableImageUrl(url)) return;
+    const filename = typeof record.filename === 'string' ? record.filename : 'image';
+    const id = typeof record.id === 'string' ? record.id : `img-${index}-${url.slice(0, 16)}`;
+    attachments.push({ id, url, mime, filename });
+  });
+  return normalizeAttachments(attachments);
+}
+
+function generateAttachmentId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('File read failed.'));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') resolve(result);
+      else reject(new Error('File read failed.'));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleAddAttachments(files: File[]) {
+  const accepted = files.filter((file) => ATTACHMENT_MIME_ALLOWLIST.has(file.type));
+  if (accepted.length === 0) {
+    sendStatus.value = 'Unsupported attachment type.';
+    return;
+  }
+  try {
+    const next = await Promise.all(
+      accepted.map(async (file) => ({
+        id: generateAttachmentId(),
+        filename: file.name || 'image',
+        mime: file.type || 'application/octet-stream',
+        dataUrl: await readFileAsDataUrl(file),
+      })),
+    );
+    attachments.value = [...attachments.value, ...next];
+  } catch (error) {
+    sendStatus.value = `Attachment failed: ${toErrorMessage(error)}`;
+  }
+}
+
+function removeAttachment(id: string) {
+  attachments.value = attachments.value.filter((item) => item.id !== id);
 }
 
 function getSessionTitle(sessionId?: string) {
@@ -1799,21 +1916,21 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         const info = message.info as Record<string, unknown> | undefined;
         const parts = message.parts as unknown;
         const text = extractMessageTextFromParts(parts) ?? '';
-        if (!text.trim()) return null;
+        const attachments = extractImageAttachmentsFromParts(parts);
+        if (!text.trim() && attachments.length === 0) return null;
         const id = typeof info?.id === 'string' ? info.id : undefined;
         const role = typeof info?.role === 'string' ? info.role : undefined;
         const meta = parseUserMessageMeta(info);
         const messageTime = extractMessageTime(info);
         if (!id) return null;
-        return { id, role, text, meta, messageTime };
+        return { id, role, text, attachments, meta, messageTime };
       })
       .filter(
-        (
-          entry,
-        ): entry is {
+        (entry): entry is {
           id: string;
           role?: string;
           text: string;
+          attachments: MessageAttachment[];
           meta: UserMessageMeta | null;
           messageTime?: number;
         } => Boolean(entry),
@@ -1857,6 +1974,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         scrollDistance,
         scrollDuration,
         html,
+        attachments: entry.attachments,
         isWrite: false,
         isMessage: true,
         isSubagentMessage,
@@ -1866,6 +1984,9 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         sessionId,
         zIndex: isSubagentMessage ? nextWindowZ() : undefined,
       });
+      if (entry.attachments.length > 0) {
+        messageAttachmentsById.set(messageKey, entry.attachments);
+      }
       messageIndexById.set(messageKey, queue.value.length - 1);
       messageContentById.set(messageKey, entry.text);
     });
@@ -2137,8 +2258,10 @@ async function sendCommand(sessionId: string, command: CommandInfo, commandArgs:
 async function sendMessage() {
   if (!canSend.value) return;
   const text = messageInput.value.trim();
+  const hasText = text.length > 0;
+  const hasAttachments = attachments.value.length > 0;
   let sessionId = selectedSessionId.value;
-  if (!text || !sessionId) return;
+  if ((!hasText && !hasAttachments) || !sessionId) return;
   if (
     !filteredSessions.value.some((session) => session.id === sessionId)
   ) {
@@ -2153,11 +2276,13 @@ async function sendMessage() {
     selectedSessionId.value = fallback.id;
     sessionId = fallback.id;
   }
-  const slash = parseSlashCommand(text);
+  const slash = hasText ? parseSlashCommand(text) : null;
   const commandMatch = slash ? findCommandByName(slash.name) : null;
   const selectedInfo = modelOptions.value.find((model) => model.id === selectedModel.value);
-  recentUserInputs.push({ text, time: Date.now() });
-  while (recentUserInputs.length > 20) recentUserInputs.shift();
+  if (hasText) {
+    recentUserInputs.push({ text, time: Date.now() });
+    while (recentUserInputs.length > 20) recentUserInputs.shift();
+  }
   messageInput.value = '';
   isSending.value = true;
   sendStatus.value = 'Sending...';
@@ -2175,6 +2300,18 @@ async function sendMessage() {
     const directory = requireSelectedWorktree('send');
     if (!directory) return;
     const params = new URLSearchParams({ directory });
+    const parts = [] as Array<Record<string, unknown>>;
+    if (hasText) parts.push({ type: 'text', text });
+    if (hasAttachments) {
+      parts.push(
+        ...attachments.value.map((item) => ({
+          type: 'file',
+          mime: item.mime,
+          url: item.dataUrl,
+          filename: item.filename,
+        })),
+      );
+    }
     const response = await fetch(
       `${OPENCODE_BASE_URL}/session/${sessionId}/prompt_async?${params.toString()}`,
       {
@@ -2189,12 +2326,13 @@ async function sendMessage() {
           modelID: selectedModel.value,
         },
         variant: selectedThinking.value !== 'default' ? selectedThinking.value : undefined,
-        parts: [{ type: 'text', text }],
+        parts,
       }),
       },
     );
     if (!response.ok) throw new Error(`Send failed (${response.status})`);
     sendStatus.value = 'Sent.';
+    attachments.value = [];
   } catch (error) {
     sendStatus.value = `Send failed: ${toErrorMessage(error)}`;
   } finally {
@@ -2346,6 +2484,7 @@ watch(selectedSessionId, () => {
   messagePartsById.clear();
   messagePartOrderById.clear();
   messageSummaryTitleById.clear();
+  messageAttachmentsById.clear();
   reasoningTitleBySessionId.clear();
   subagentSessionExpiry.clear();
   selectedSessionStatus.value = '';
@@ -2989,9 +3128,16 @@ function extractPatch(payload: unknown) {
       ? (record.properties as Record<string, unknown>)
       : undefined);
   const part =
-    properties?.part && typeof properties.part === 'object'
+    (properties?.part && typeof properties.part === 'object'
       ? (properties.part as Record<string, unknown>)
-      : undefined;
+      : undefined) ??
+    (data?.part && typeof data.part === 'object' ? (data.part as Record<string, unknown>) : undefined) ??
+    (record.part && typeof record.part === 'object'
+      ? (record.part as Record<string, unknown>)
+      : undefined) ??
+    (messageObject?.part && typeof messageObject.part === 'object'
+      ? (messageObject.part as Record<string, unknown>)
+      : undefined);
 
   if (part?.type !== 'tool' || part?.tool !== 'apply_patch') return null;
 
@@ -3225,6 +3371,72 @@ function extractMessageTextFromParts(parts: unknown) {
   }
   if (texts.length === 0) return undefined;
   return texts.join('');
+}
+
+function extractMessageAttachments(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const info =
+    properties?.info && typeof properties.info === 'object'
+      ? (properties.info as Record<string, unknown>)
+      : undefined;
+  const data =
+    (record.data as Record<string, unknown> | undefined) ??
+    nestedPayload ??
+    (record.result as Record<string, unknown> | undefined);
+  const messageObject =
+    (properties?.message as Record<string, unknown> | undefined) ??
+    (data?.message as Record<string, unknown> | undefined) ??
+    (record.message as Record<string, unknown> | undefined);
+  const part =
+    (properties?.part && typeof properties.part === 'object'
+      ? (properties.part as Record<string, unknown>)
+      : undefined) ??
+    (data?.part && typeof data.part === 'object'
+      ? (data.part as Record<string, unknown>)
+      : undefined) ??
+    (record.part && typeof record.part === 'object'
+      ? (record.part as Record<string, unknown>)
+      : undefined) ??
+    (messageObject?.part && typeof messageObject.part === 'object'
+      ? (messageObject.part as Record<string, unknown>)
+      : undefined);
+  const parts =
+    (messageObject?.parts as unknown) ??
+    (data?.parts as unknown) ??
+    (record.parts as unknown);
+
+  const attachments = normalizeAttachments([
+    ...extractImageAttachmentsFromParts(parts),
+    ...extractImageAttachmentsFromParts(part ? [part] : []),
+  ]);
+
+  if (attachments.length === 0) return null;
+
+  const messageId =
+    (part?.messageID as string | undefined) ??
+    (messageObject?.id as string | undefined) ??
+    (messageObject?.messageId as string | undefined) ??
+    (info?.id as string | undefined) ??
+    (properties?.messageId as string | undefined) ??
+    (properties?.id as string | undefined) ??
+    (data?.messageId as string | undefined) ??
+    (data?.id as string | undefined) ??
+    (record.messageId as string | undefined) ??
+    (record.id as string | undefined);
+
+  return { messageId, attachments };
 }
 
 function extractMessage(payload: unknown, eventType: string) {
@@ -4040,6 +4252,26 @@ function connect() {
     registerMessageMeta(payload);
     registerMessageSummary(payload);
 
+    const attachmentUpdate = extractMessageAttachments(payload);
+    if (attachmentUpdate?.messageId) {
+      const attachmentKey = buildMessageKey(attachmentUpdate.messageId, sessionId);
+      const mergedAttachments = normalizeAttachments([
+        ...(messageAttachmentsById.get(attachmentKey) ?? []),
+        ...attachmentUpdate.attachments,
+      ]);
+      messageAttachmentsById.set(attachmentKey, mergedAttachments);
+      const existingAttachmentIndex = messageIndexById.get(attachmentKey);
+      if (existingAttachmentIndex !== undefined) {
+        const existing = queue.value[existingAttachmentIndex];
+        if (existing) {
+          queue.value.splice(existingAttachmentIndex, 1, {
+            ...existing,
+            attachments: mergedAttachments,
+          });
+        }
+      }
+    }
+
     const stepFinish = extractStepFinish(payload, resolvedEventType);
     if (stepFinish) {
       scheduleReasoningClose(stepFinish.sessionId ?? sessionId);
@@ -4059,7 +4291,57 @@ function connect() {
     const fileRead = extractFileRead(payload, resolvedEventType);
     if (!fileRead) {
       const message = extractMessage(payload, resolvedEventType);
-      if (!message) return;
+      if (!message) {
+        if (attachmentUpdate?.messageId && attachmentUpdate.attachments.length > 0) {
+          const attachmentKey = buildMessageKey(attachmentUpdate.messageId, sessionId);
+          if (!messageIndexById.has(attachmentKey)) {
+            const isSubagentMessage = Boolean(
+              sessionId && selectedSessionId.value && sessionId !== selectedSessionId.value,
+            );
+            const header = '';
+            const time = Date.now();
+            const text = '';
+            const messageColumns = 52;
+            const visibleLines = 12;
+            const lines = countWrappedLines(text, messageColumns);
+            const overflowLines = Math.max(0, lines - visibleLines);
+            const lineHeight = 16;
+            const scrollDistance = Math.max(0, overflowLines * lineHeight);
+            const scrollDuration =
+              overflowLines > 0 ? Math.min(0.25, Math.max(0.08, overflowLines * 0.01)) : 0;
+            const html = buildHtml(text, 'markdown');
+            const attachments = messageAttachmentsById.get(attachmentKey) ?? [];
+            const isUserMessage = userMessageIds.has(attachmentUpdate.messageId);
+            const randomPosition = isSubagentMessage ? getRandomWindowPosition() : { x: 0, y: 0 };
+            queue.value.push({
+              time,
+              expiresAt: isSubagentMessage ? getSubagentExpiry(sessionId) : time + 1000 * 60 * 30,
+              x: randomPosition.x,
+              y: randomPosition.y,
+              header,
+              content: '',
+              role: isUserMessage ? 'user' : 'assistant',
+              scroll: !isSubagentMessage && overflowLines > 0,
+              scrollDistance: isSubagentMessage ? 0 : scrollDistance,
+              scrollDuration: isSubagentMessage ? 0 : scrollDuration,
+              html,
+              attachments,
+              isWrite: false,
+              isMessage: true,
+              isSubagentMessage,
+              messageId: attachmentUpdate.messageId,
+              messageKey: attachmentKey,
+              follow: isSubagentMessage ? true : undefined,
+              sessionId,
+              zIndex: isSubagentMessage ? nextWindowZ() : undefined,
+            });
+            messageIndexById.set(attachmentKey, queue.value.length - 1);
+            messageContentById.set(attachmentKey, '');
+            if (!isSubagentMessage) scheduleFollowScroll();
+          }
+        }
+        return;
+      }
       const isReasoning = message.partType === 'reasoning';
       const reasoningKey = sessionId ?? selectedSessionId.value ?? 'main';
       const stableMessageId = isReasoning
@@ -4162,6 +4444,7 @@ function connect() {
           ? getSubagentExpiry(sessionId)
           : time + 1000 * 60 * 30;
       const html = buildHtml(text, 'markdown');
+      const attachments = messageAttachmentsById.get(messageKey);
 
       let existingIndex = messageIndexById.get(messageKey);
       if (existingIndex === undefined) {
@@ -4190,6 +4473,10 @@ function connect() {
           const nextMessageModel = displayMeta?.model ?? existing.messageModel;
           const nextMessageVariant = displayMeta?.variant ?? existing.messageVariant;
           const nextMessageTime = resolvedTime ?? existing.messageTime;
+          const nextAttachments =
+            attachments && attachments.length > 0
+              ? attachments
+              : existing.attachments;
           queue.value.splice(existingIndex, 1, {
             ...existing,
             time,
@@ -4205,6 +4492,7 @@ function connect() {
             scrollDistance: isFloatingMessage ? 0 : nextScrollDistance,
             scrollDuration: isFloatingMessage ? 0 : nextScrollDuration,
             html: buildHtml(nextText, 'markdown'),
+            attachments: nextAttachments,
             isReasoning,
             messageKey,
             follow: existing.follow ?? (isFloatingMessage ? true : undefined),
@@ -4235,6 +4523,7 @@ function connect() {
         scrollDistance: isFloatingMessage ? 0 : scrollDistance,
         scrollDuration: isFloatingMessage ? 0 : scrollDuration,
         html,
+        attachments,
         isWrite: false,
         isMessage: true,
         isSubagentMessage,

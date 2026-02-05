@@ -31,6 +31,16 @@
             }"
           >
             <div class="shiki-host is-message" v-html="q.html"></div>
+            <div v-if="q.attachments && q.attachments.length > 0" class="message-attachments">
+              <img
+                v-for="item in q.attachments"
+                :key="item.id"
+                class="message-attachment"
+                :src="item.url"
+                :alt="item.filename"
+                loading="lazy"
+              />
+            </div>
           </div>
           <div
             v-if="q.role === 'user' && formatMessageMeta(q)"
@@ -74,6 +84,7 @@ type FileReadEntry = {
   scrollDistance: number;
   scrollDuration: number;
   html: string;
+  attachments?: Array<{ id: string; url: string; mime: string; filename: string }>;
   isWrite: boolean;
   isMessage: boolean;
   isSubagentMessage?: boolean;
@@ -280,6 +291,22 @@ defineExpose({ dockEl });
   word-break: break-word;
 }
 
+
+.message-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.message-attachment {
+  width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  object-fit: cover;
+  background: #0b1320;
+}
 
 .message-dock .shiki-host :deep(.line:empty)::after {
   content: ' ';
