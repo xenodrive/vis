@@ -36,7 +36,7 @@
             <TransitionGroup appear name="fade">
               <div
                 v-for="q in queue.filter((entry) => !entry.isMessage || entry.isSubagentMessage)"
-                :key="q.callId ?? q.messageId ?? q.time"
+                :key="q.permissionId ?? q.callId ?? q.messageId ?? q.time"
                 class="term"
                 :data-tool-key="q.toolKey ?? q.callId ?? undefined"
                 :data-message-key="q.messageId ? buildMessageKey(q.messageId, q.sessionId) : undefined"
@@ -46,10 +46,11 @@
                   'is-apply-patch': q.toolName === 'apply_patch',
                   'is-reasoning': q.isReasoning || q.isSubagentMessage,
                   'is-shell': q.isShell,
+                  'is-permission': q.isPermission,
                 }"
                 :style="{
-                  left: `calc(${q.x} * (100% - var(--term-width)))`,
-                  top: `calc(var(--tool-top-offset) + ${q.y} * (var(--tool-area-height) - var(--term-height)))`,
+                  left: `${q.x ?? 0}px`,
+                  top: `calc(var(--tool-top-offset) + ${q.y ?? 0}px)`,
                   '--term-width': q.width ? `${q.width}px` : undefined,
                   '--term-height': q.height ? `${q.height}px` : undefined,
                   zIndex: q.zIndex ?? undefined,
@@ -68,6 +69,13 @@
                   @scroll="handleFloatingScroll(q, $event)"
                 >
                   <div v-if="q.isShell" class="xterm-host" :data-shell-id="q.shellId"></div>
+                  <PermissionWindow
+                    v-else-if="q.isPermission && q.permissionRequest"
+                    :request="q.permissionRequest"
+                    :is-submitting="isPermissionSubmitting(q.permissionRequest.id)"
+                    :error="getPermissionError(q.permissionRequest.id)"
+                    @reply="handlePermissionReply"
+                  />
                   <div
                     v-else
                     class="shiki-host"
@@ -76,7 +84,7 @@
                   ></div>
                 </div>
                 <div
-                  v-if="q.isReasoning || q.isSubagentMessage || q.isShell"
+                  v-if="q.isReasoning || q.isSubagentMessage || q.isShell || q.isPermission"
                   class="term-resizer"
                   @pointerdown="startTermResize(q, $event)"
                 ></div>
@@ -125,6 +133,7 @@ import ControlPanel from './ControlPanel.vue';
 import TopPanel from './TopPanel.vue';
 import OutputDock from './OutputDock.vue';
 import ProjectPicker from './ProjectPicker.vue';
+import PermissionWindow from './PermissionWindow.vue';
 
 const OPENCODE_BASE_URL = 'http://localhost:4096';
 const HISTORY_LIMIT = 60;
@@ -176,6 +185,7 @@ type FileReadEntry = {
   isSubagentMessage?: boolean;
   isReasoning?: boolean;
   isShell?: boolean;
+  isPermission?: boolean;
   sessionId?: string;
   toolKey?: string;
   role?: 'user' | 'assistant';
@@ -184,13 +194,30 @@ type FileReadEntry = {
   messageId?: string;
   messageKey?: string;
   callId?: string;
+  permissionId?: string;
   follow?: boolean;
   zIndex?: number;
   width?: number;
   height?: number;
   shellId?: string;
   shellTitle?: string;
+  permissionRequest?: PermissionRequest;
 };
+
+type PermissionRequest = {
+  id: string;
+  sessionID: string;
+  permission: string;
+  patterns: string[];
+  metadata: Record<string, unknown>;
+  always: string[];
+  tool?: {
+    messageID: string;
+    callID: string;
+  };
+};
+
+type PermissionReply = 'once' | 'always' | 'reject';
 
 type PtyInfo = {
   id: string;
@@ -255,6 +282,8 @@ const recentUserInputs: { text: string; time: number }[] = [];
 const shellSessionsByPtyId = new Map<string, ShellSession>();
 const shellPtyIdsBySessionId = new Map<string, Set<string>>();
 const pendingShellFits = new Map<string, number>();
+const permissionSendingById = ref<Record<string, boolean>>({});
+const permissionErrorById = ref<Record<string, string>>({});
 
 type ProjectInfo = {
   id: string;
@@ -490,9 +519,57 @@ function clamp(value: number, min: number, max: number) {
   return value;
 }
 
-function bringToFront(entry: FileReadEntry) {
+function syncNextWindowZIndex(entries: FileReadEntry[] = queue.value) {
+  let maxZ = nextWindowZIndex;
+  entries.forEach((entry) => {
+    if (typeof entry.zIndex === 'number' && entry.zIndex > maxZ) maxZ = entry.zIndex;
+  });
+  nextWindowZIndex = maxZ;
+}
+
+function nextWindowZ() {
+  syncNextWindowZIndex();
   nextWindowZIndex += 1;
-  entry.zIndex = nextWindowZIndex;
+  return nextWindowZIndex;
+}
+
+function bringToFront(entry: FileReadEntry) {
+  entry.zIndex = nextWindowZ();
+}
+
+function getCanvasMetrics() {
+  const canvas = canvasEl.value;
+  if (!canvas) return null;
+  const canvasRect = canvas.getBoundingClientRect();
+  const styles = getComputedStyle(canvas);
+  const toolTop = Number.parseFloat(styles.getPropertyValue('--tool-top-offset')) || 0;
+  const toolAreaValue = styles.getPropertyValue('--tool-area-height').trim();
+  const parsedToolArea = Number.parseFloat(toolAreaValue);
+  const toolAreaHeight =
+    toolAreaValue.endsWith('px') && Number.isFinite(parsedToolArea) && parsedToolArea > 0
+      ? parsedToolArea
+      : canvasRect.height - toolTop;
+  const widthValue = styles.getPropertyValue('--term-width');
+  const heightValue = styles.getPropertyValue('--term-height');
+  const parsedWidth = Number.parseFloat(widthValue);
+  const parsedHeight = Number.parseFloat(heightValue);
+  const termWidth = Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 640;
+  const termHeight = Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : 350;
+  return { canvasRect, toolTop, toolAreaHeight, termWidth, termHeight };
+}
+
+function getRandomWindowPosition(size?: { width?: number; height?: number }) {
+  const metrics = getCanvasMetrics();
+  if (!metrics) return { x: 0, y: 0 };
+  const { canvasRect, toolAreaHeight, termWidth, termHeight } = metrics;
+  const targetWidth = size?.width ?? termWidth;
+  const targetHeight = size?.height ?? termHeight;
+  const maxLeft = Math.max(0, canvasRect.width - targetWidth);
+  const maxTop = Math.max(0, toolAreaHeight - targetHeight);
+  return {
+    x: Math.round(Math.random() * maxLeft),
+    y: Math.round(Math.random() * maxTop),
+  };
 }
 
 function loadShellPtyStorage() {
@@ -634,6 +711,10 @@ function isDarkThemeName(name: string) {
 }
 
 function getEntryTitle(entry: FileReadEntry) {
+  if (entry.isPermission) {
+    const permission = entry.permissionRequest?.permission;
+    return permission ? `Permission: ${permission}` : 'Permission request';
+  }
   if (entry.isShell) return entry.shellTitle ?? 'Shell';
   if (entry.isReasoning) {
     const sessionTitle = getSessionTitle(entry.sessionId);
@@ -698,30 +779,17 @@ function startTermDrag(entry: FileReadEntry, event: PointerEvent) {
   if (event.button !== 0) return;
   bringToFront(entry);
   resizeState.value = null;
-  const canvas = canvasEl.value;
-  if (!canvas) return;
+  const metrics = getCanvasMetrics();
+  if (!metrics) return;
   const termEl = (event.currentTarget as HTMLElement).closest('.term') as HTMLElement | null;
-  const canvasRect = canvas.getBoundingClientRect();
+  const { canvasRect, toolTop, toolAreaHeight, termWidth, termHeight } = metrics;
   const termRect = termEl?.getBoundingClientRect();
-  const styles = getComputedStyle(canvas);
-  const toolTop = Number.parseFloat(styles.getPropertyValue('--tool-top-offset')) || 0;
-  const toolAreaValue = styles.getPropertyValue('--tool-area-height').trim();
-  const parsedToolArea = Number.parseFloat(toolAreaValue);
-  const toolAreaHeight =
-    toolAreaValue.endsWith('px') && Number.isFinite(parsedToolArea) && parsedToolArea > 0
-      ? parsedToolArea
-      : canvasRect.height - toolTop;
-  const widthValue = styles.getPropertyValue('--term-width');
-  const heightValue = styles.getPropertyValue('--term-height');
-  const parsedWidth = Number.parseFloat(widthValue);
-  const parsedHeight = Number.parseFloat(heightValue);
-  const termWidth = termRect?.width ?? (Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 640);
-  const termHeight =
-    termRect?.height ?? (Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : 350);
-  const maxX = Math.max(1, canvasRect.width - termWidth);
-  const maxY = Math.max(1, toolAreaHeight - termHeight);
-  const startLeft = termRect ? termRect.left - canvasRect.left : entry.x * maxX;
-  const startTop = termRect ? termRect.top - canvasRect.top : toolTop + entry.y * maxY;
+  const resolvedWidth = termRect?.width ?? termWidth;
+  const resolvedHeight = termRect?.height ?? termHeight;
+  const maxX = Math.max(0, canvasRect.width - resolvedWidth);
+  const maxY = Math.max(0, toolAreaHeight - resolvedHeight);
+  const startLeft = termRect ? termRect.left - canvasRect.left : entry.x;
+  const startTop = termRect ? termRect.top - canvasRect.top : toolTop + entry.y;
   dragState.value = {
     entry,
     startX: event.clientX,
@@ -740,20 +808,12 @@ function startTermResize(entry: FileReadEntry, event: PointerEvent) {
   if (event.button !== 0) return;
   bringToFront(entry);
   dragState.value = null;
-  const canvas = canvasEl.value;
-  if (!canvas) return;
+  const metrics = getCanvasMetrics();
+  if (!metrics) return;
   const termEl = (event.currentTarget as HTMLElement).closest('.term') as HTMLElement | null;
   const termRect = termEl?.getBoundingClientRect();
   if (!termRect) return;
-  const canvasRect = canvas.getBoundingClientRect();
-  const styles = getComputedStyle(canvas);
-  const toolTop = Number.parseFloat(styles.getPropertyValue('--tool-top-offset')) || 0;
-  const toolAreaValue = styles.getPropertyValue('--tool-area-height').trim();
-  const parsedToolArea = Number.parseFloat(toolAreaValue);
-  const toolAreaHeight =
-    toolAreaValue.endsWith('px') && Number.isFinite(parsedToolArea) && parsedToolArea > 0
-      ? parsedToolArea
-      : canvasRect.height - toolTop;
+  const { canvasRect, toolTop, toolAreaHeight } = metrics;
   const offsetLeft = termRect.left - canvasRect.left;
   const offsetTop = termRect.top - canvasRect.top;
   const maxWidth = Math.max(200, canvasRect.width - offsetLeft);
@@ -793,8 +853,8 @@ function handlePointerMove(event: PointerEvent) {
   const dy = event.clientY - startY;
   const nextLeft = clamp(startLeft + dx, 0, maxX);
   const nextTop = clamp(startTop + dy, toolTop, toolTop + maxY);
-  entry.x = maxX > 0 ? nextLeft / maxX : 0;
-  entry.y = maxY > 0 ? (nextTop - toolTop) / maxY : 0;
+  entry.x = nextLeft;
+  entry.y = nextTop - toolTop;
 }
 
 function handlePointerUp() {
@@ -1298,6 +1358,23 @@ async function fetchSessionStatus() {
   }
 }
 
+async function fetchPendingPermissions() {
+  try {
+    const response = await fetch(`${OPENCODE_BASE_URL}/permission`);
+    if (!response.ok) throw new Error(`Permission list failed (${response.status})`);
+    const data = (await response.json()) as unknown;
+    if (!Array.isArray(data)) return;
+    data
+      .map((entry) => parsePermissionRequest(entry))
+      .filter((entry): entry is PermissionRequest => Boolean(entry))
+      .forEach((entry) => {
+        upsertPermissionEntry(entry);
+      });
+  } catch (error) {
+    log('Permission list failed', error);
+  }
+}
+
 async function fetchHistory(sessionId: string, isSubagentMessage = false) {
   if (!sessionId) return;
   try {
@@ -1334,11 +1411,12 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         overflowLines > 0 ? Math.min(0.25, Math.max(0.08, overflowLines * 0.01)) : 0;
       const expiresAt = isSubagentMessage ? getSubagentExpiry(sessionId) : time + 1000 * 60 * 30;
       const html = buildHtml(text, 'markdown');
+      const randomPosition = isSubagentMessage ? getRandomWindowPosition() : { x: 0, y: 0 };
       queue.value.push({
         time,
         expiresAt,
-        x: isSubagentMessage ? Math.random() : 0,
-        y: isSubagentMessage ? Math.random() : 0,
+        x: randomPosition.x,
+        y: randomPosition.y,
         header,
         content: entry.text,
         role: entry.role === 'user' ? 'user' : 'assistant',
@@ -1353,6 +1431,7 @@ async function fetchHistory(sessionId: string, isSubagentMessage = false) {
         messageKey,
         follow: isSubagentMessage ? true : undefined,
         sessionId,
+        zIndex: isSubagentMessage ? nextWindowZ() : undefined,
       });
       messageIndexById.set(messageKey, queue.value.length - 1);
       messageContentById.set(messageKey, entry.text);
@@ -1435,11 +1514,12 @@ async function updatePtySize(ptyId: string, rows: number, cols: number, director
 function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?: boolean } = {}) {
   if (shellSessionsByPtyId.has(pty.id)) return;
   const time = Date.now();
+  const randomPosition = getRandomWindowPosition();
   const entry: FileReadEntry = {
     time,
     expiresAt: Number.MAX_SAFE_INTEGER,
-    x: Math.random(),
-    y: Math.random(),
+    x: randomPosition.x,
+    y: randomPosition.y,
     header: '',
     path: undefined,
     content: '',
@@ -1453,9 +1533,8 @@ function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?
     shellId: pty.id,
     shellTitle: pty.title || 'Shell',
     sessionId,
-    zIndex: nextWindowZIndex + 1,
+    zIndex: nextWindowZ(),
   };
-  bringToFront(entry);
   queue.value.push(entry);
   if (!options.preserve) addShellPtyId(sessionId, pty.id);
   const terminal = new Terminal({
@@ -2079,6 +2158,46 @@ function formatToolValue(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function parsePermissionRequest(value: unknown, fallbackSessionId?: string): PermissionRequest | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const id =
+    (typeof record.id === 'string' && record.id) ||
+    (typeof record.requestID === 'string' && record.requestID)
+      ? String(record.id ?? record.requestID)
+      : undefined;
+  const sessionID =
+    (typeof record.sessionID === 'string' && record.sessionID) ||
+    (typeof record.sessionId === 'string' && record.sessionId) ||
+    (typeof record.session_id === 'string' && record.session_id) ||
+    fallbackSessionId;
+  const permission = typeof record.permission === 'string' ? record.permission : undefined;
+  const patterns = Array.isArray(record.patterns)
+    ? record.patterns.filter((entry) => typeof entry === 'string')
+    : [];
+  const always = Array.isArray(record.always)
+    ? record.always.filter((entry) => typeof entry === 'string')
+    : [];
+  const metadata =
+    record.metadata && typeof record.metadata === 'object'
+      ? (record.metadata as Record<string, unknown>)
+      : {};
+  const toolRaw = record.tool && typeof record.tool === 'object' ? (record.tool as Record<string, unknown>) : null;
+  const toolMessageId = toolRaw && typeof toolRaw.messageID === 'string' ? toolRaw.messageID : undefined;
+  const toolCallId = toolRaw && typeof toolRaw.callID === 'string' ? toolRaw.callID : undefined;
+  if (!id || !sessionID || !permission) return null;
+  const tool = toolMessageId && toolCallId ? { messageID: toolMessageId, callID: toolCallId } : undefined;
+  return {
+    id,
+    sessionID,
+    permission,
+    patterns,
+    metadata,
+    always,
+    tool,
+  };
 }
 
 function extractFileBodyFromReadOutput(output: string) {
@@ -2929,6 +3048,67 @@ function extractPtyEvent(payload: unknown, eventType: string) {
   return { type, normalized, info, id, exitCode };
 }
 
+function extractPermissionAsked(payload: unknown, eventType: string) {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const type =
+    (record.type as string | undefined) ??
+    (record.event as string | undefined) ??
+    (nestedPayload?.type as string | undefined) ??
+    eventType;
+  if (!type) return null;
+  const normalized = normalizeEventType(type);
+  if (normalized !== 'permissionasked') return null;
+  return parsePermissionRequest(properties, extractSessionId(payload));
+}
+
+function extractPermissionReplied(payload: unknown, eventType: string) {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const type =
+    (record.type as string | undefined) ??
+    (record.event as string | undefined) ??
+    (nestedPayload?.type as string | undefined) ??
+    eventType;
+  if (!type) return null;
+  const normalized = normalizeEventType(type);
+  if (normalized !== 'permissionreplied') return null;
+  const requestID =
+    (properties?.requestID as string | undefined) ??
+    (properties?.id as string | undefined) ??
+    (record.id as string | undefined);
+  const reply = properties?.reply as PermissionReply | undefined;
+  const sessionID =
+    (properties?.sessionID as string | undefined) ??
+    (properties?.sessionId as string | undefined) ??
+    (properties?.session_id as string | undefined) ??
+    extractSessionId(payload);
+  if (!requestID) return null;
+  return { requestID, reply, sessionID };
+}
+
 function handlePtyEvent(event: {
   type: string;
   normalized: string;
@@ -2954,6 +3134,119 @@ function handlePtyEvent(event: {
     if (event.info.status === 'exited') {
       removeShellWindow(event.info.id);
     }
+  }
+}
+
+function buildPermissionEntry(request: PermissionRequest): FileReadEntry {
+  const time = Date.now();
+  const width = 420;
+  const height = 280;
+  const randomPosition = getRandomWindowPosition({ width, height });
+  return {
+    time,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    x: randomPosition.x,
+    y: randomPosition.y,
+    header: '',
+    path: undefined,
+    content: '',
+    scroll: false,
+    scrollDistance: 0,
+    scrollDuration: 0,
+    html: '',
+    isWrite: false,
+    isMessage: false,
+    isPermission: true,
+    permissionId: request.id,
+    permissionRequest: request,
+    sessionId: request.sessionID,
+    width,
+    height,
+    zIndex: nextWindowZ(),
+  };
+}
+
+function upsertPermissionEntry(request: PermissionRequest) {
+  const existingIndex = queue.value.findIndex(
+    (entry) => entry.isPermission && entry.permissionId === request.id,
+  );
+  if (existingIndex >= 0) {
+    const existing = queue.value[existingIndex];
+    if (!existing) return;
+    queue.value.splice(existingIndex, 1, {
+      ...existing,
+      permissionId: request.id,
+      permissionRequest: request,
+      sessionId: request.sessionID,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      isPermission: true,
+    });
+    return;
+  }
+  queue.value.push(buildPermissionEntry(request));
+}
+
+function removePermissionEntry(requestId: string) {
+  const existingIndex = queue.value.findIndex(
+    (entry) => entry.isPermission && entry.permissionId === requestId,
+  );
+  if (existingIndex < 0) return;
+  queue.value.splice(existingIndex, 1);
+  clearPermissionSending(requestId);
+  clearPermissionError(requestId);
+}
+
+function setPermissionSending(requestId: string, value: boolean) {
+  const next = { ...permissionSendingById.value };
+  if (value) next[requestId] = true;
+  else delete next[requestId];
+  permissionSendingById.value = next;
+}
+
+function clearPermissionSending(requestId: string) {
+  setPermissionSending(requestId, false);
+}
+
+function setPermissionError(requestId: string, message: string) {
+  const next = { ...permissionErrorById.value };
+  if (message) next[requestId] = message;
+  else delete next[requestId];
+  permissionErrorById.value = next;
+}
+
+function clearPermissionError(requestId: string) {
+  setPermissionError(requestId, '');
+}
+
+function isPermissionSubmitting(requestId: string) {
+  return Boolean(permissionSendingById.value[requestId]);
+}
+
+function getPermissionError(requestId: string) {
+  return permissionErrorById.value[requestId] ?? '';
+}
+
+async function sendPermissionReply(requestId: string, reply: PermissionReply) {
+  const response = await fetch(`${OPENCODE_BASE_URL}/permission/${requestId}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reply }),
+  });
+  if (!response.ok) throw new Error(`Permission reply failed (${response.status})`);
+}
+
+async function handlePermissionReply(payload: { requestId: string; reply: PermissionReply }) {
+  const { requestId, reply } = payload;
+  if (isPermissionSubmitting(requestId)) return;
+  clearPermissionError(requestId);
+  setPermissionSending(requestId, true);
+  try {
+    await sendPermissionReply(requestId, reply);
+    removePermissionEntry(requestId);
+  } catch (error) {
+    setPermissionError(requestId, toErrorMessage(error));
+  } finally {
+    clearPermissionSending(requestId);
   }
 }
 
@@ -3138,11 +3431,12 @@ function upsertToolEntry(
   }
 
   const toolKey = entry.callId ?? `${entry.path ?? entry.toolName ?? 'tool'}:${time}`;
+  const randomPosition = getRandomWindowPosition();
   queue.value.push({
     time,
     expiresAt,
-    x: Math.random(),
-    y: Math.random(),
+    x: randomPosition.x,
+    y: randomPosition.y,
     header,
     path: entry.path,
     toolKey,
@@ -3156,6 +3450,7 @@ function upsertToolEntry(
     callId: entry.callId,
     toolStatus: entry.toolStatus,
     toolName: entry.toolName,
+    zIndex: nextWindowZ(),
   });
   if (entry.callId) toolIndexByCallId.set(entry.callId, queue.value.length - 1);
   scheduleToolScrollAnimation(toolKey);
@@ -3217,6 +3512,17 @@ function connect() {
     log(payloadText);
 
     const resolvedEventType = resolveEventType(payload, e.type);
+
+    const permissionReplied = extractPermissionReplied(payload, resolvedEventType);
+    if (permissionReplied) {
+      removePermissionEntry(permissionReplied.requestID);
+      return;
+    }
+    const permissionAsked = extractPermissionAsked(payload, resolvedEventType);
+    if (permissionAsked) {
+      upsertPermissionEntry(permissionAsked);
+      return;
+    }
 
     const sessionInfo = extractSessionInfo(payload, resolvedEventType);
     if (sessionInfo) {
@@ -3438,11 +3744,12 @@ function connect() {
       }
 
       messageContentById.set(messageKey, mergedContent);
+      const randomPosition = isSubagentMessage ? getRandomWindowPosition() : { x: 0, y: 0 };
       queue.value.push({
         time,
         expiresAt,
-        x: isSubagentMessage ? Math.random() : 0,
-        y: isSubagentMessage ? Math.random() : 0,
+        x: randomPosition.x,
+        y: randomPosition.y,
         header,
         content: mergedContent,
         role: isUserMessage ? 'user' : 'assistant',
@@ -3458,6 +3765,7 @@ function connect() {
         messageKey,
         follow: isFloatingMessage ? true : undefined,
         sessionId,
+        zIndex: isFloatingMessage ? nextWindowZ() : undefined,
       });
       messageIndexById.set(messageKey, queue.value.length - 1);
       if (isFloatingMessage) scheduleReasoningScroll(messageKey);
@@ -3491,6 +3799,8 @@ onMounted(() => {
   fetchProviders();
   fetchAgents();
   fetchSessionStatus();
+  fetchCommands(activeDirectory.value || undefined);
+  fetchPendingPermissions();
   const availableThemes = getBundledThemeNames();
   const chosenTheme = pickShikiTheme(availableThemes);
   if (chosenTheme) shikiTheme.value = chosenTheme;
@@ -3743,6 +4053,12 @@ onBeforeUnmount(() => {
   --term-border-color: #1f2937;
 }
 
+.term.is-permission {
+  background: #0b1320;
+  border-color: #334155;
+  --term-border-color: #334155;
+}
+
 .term-titlebar {
   height: 22px;
   display: flex;
@@ -3792,6 +4108,11 @@ onBeforeUnmount(() => {
 .term.is-shell .term-inner {
   padding: 0;
   overflow: hidden;
+}
+
+.term.is-permission .term-inner {
+  padding: 8px;
+  overflow: auto;
 }
 
 .xterm-host {
