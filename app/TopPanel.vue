@@ -39,6 +39,7 @@
               >
                 <span class="dropdown-item-label">{{ worktreeLabel(directory) }}</span>
                 <button
+                  v-if="canDeleteWorktree(directory)"
                   type="button"
                   class="dropdown-delete"
                   @click.stop="handleWorktreeDelete(directory, close)"
@@ -111,6 +112,7 @@ type SessionInfo = {
 const props = defineProps<{
   projects: ProjectInfo[];
   worktrees: string[];
+  worktreeMeta?: Record<string, { branch?: string }>;
   sessions: SessionInfo[];
   selectedProjectId: string;
   selectedWorktreeDir: string;
@@ -176,11 +178,29 @@ function sessionLabel(session: SessionInfo) {
 
 function worktreeLabel(directory: string) {
   const base = props.worktreeBase?.replace(/\/+$/, '') ?? '';
+  const branch = worktreeBranch(directory);
+  if (branch) return branch;
   if (base && directory.startsWith(base)) {
     const trimmed = directory.slice(base.length).replace(/^\/+/, '');
     if (trimmed) return `./${trimmed}`;
   }
   return directory;
+}
+
+function normalizeWorktreePath(value: string) {
+  const trimmed = value.replace(/\/+$/, '');
+  return trimmed || value;
+}
+
+function worktreeBranch(directory: string) {
+  const key = normalizeWorktreePath(directory);
+  return props.worktreeMeta?.[key]?.branch ?? '';
+}
+
+function canDeleteWorktree(directory: string) {
+  const base = normalizeWorktreePath(props.worktreeBase ?? '');
+  if (!base) return true;
+  return normalizeWorktreePath(directory) !== base;
 }
 
 function handleWorktreeDelete(id: string, close?: () => void) {

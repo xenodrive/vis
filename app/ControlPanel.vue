@@ -187,6 +187,20 @@ function selectActiveCommand() {
   applyCommandSelection(match.name);
 }
 
+function extractSlashCommand(value: string) {
+  if (!value.startsWith('/')) return '';
+  const trimmed = value.slice(1);
+  const match = trimmed.match(/^(\S+)/);
+  return match?.[1] ?? '';
+}
+
+function hasMatchingCommand(name: string) {
+  if (!name) return false;
+  return (props.commands ?? []).some(
+    (command) => command.name.toLowerCase() === name.toLowerCase(),
+  );
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (commandPopupOpen.value) {
     const total = commandMatches.value.length;
@@ -226,6 +240,8 @@ function handleKeydown(event: KeyboardEvent) {
     !event.altKey &&
     messageValue.value.startsWith('/')
   ) {
+    const commandName = extractSlashCommand(messageValue.value);
+    if (!hasMatchingCommand(commandName)) return;
     event.preventDefault();
     emit('send');
   }
@@ -253,6 +269,8 @@ const thinkingValue = computed({
   flex-direction: column;
   gap: 10px;
   width: 100%;
+  height: 100%;
+  min-height: 0;
   box-sizing: border-box;
   padding: 10px;
   background: rgba(15, 23, 42, 0.92);
@@ -266,6 +284,8 @@ const thinkingValue = computed({
 .control-message {
   width: 100%;
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .control-toolbar {
@@ -321,8 +341,10 @@ const thinkingValue = computed({
   resize: none;
   min-height: 96px;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.2;
   display: block;
+  height: 100%;
+  min-height: 0;
 }
 
 .command-popup {

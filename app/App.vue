@@ -1,9 +1,10 @@
 <template>
-  <div class="app">
+  <div ref="appEl" class="app">
     <header class="app-header">
       <TopPanel
         :projects="projects"
         :worktrees="worktrees"
+        :worktree-meta="worktreeMetaByDir"
         :sessions="filteredSessions"
         :worktree-base="selectedProjectDirectory"
         v-model:selected-project-id="selectedProjectId"
@@ -16,7 +17,7 @@
         @delete-session="deleteSession"
       />
     </header>
-    <main class="app-output">
+    <main ref="outputEl" class="app-output">
       <div class="output-stage">
         <div class="output-stack">
           <OutputDock
@@ -67,6 +68,7 @@
                     '--scroll-duration': `${q.scrollDuration}s`,
                   }"
                   @scroll="handleFloatingScroll(q, $event)"
+                  @wheel="handleFloatingWheel(q, $event)"
                 >
                   <div v-if="q.isShell" class="xterm-host" :data-shell-id="q.shellId"></div>
                   <PermissionWindow
@@ -94,7 +96,12 @@
         </div>
       </div>
     </main>
-    <footer class="app-input">
+    <footer
+      ref="inputEl"
+      class="app-input"
+      :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
+    >
+      <div class="input-resizer" @pointerdown="startInputResize"></div>
       <ControlPanel
         :can-send="canSend"
         :agent-options="agentOptions"
@@ -138,6 +145,7 @@ import PermissionWindow from './PermissionWindow.vue';
 const OPENCODE_BASE_URL = 'http://localhost:4096';
 const HISTORY_LIMIT = 60;
 const FOLLOW_THRESHOLD_PX = 24;
+const FLOATING_FOLLOW_THRESHOLD_PX = 2;
 const TOOL_PENDING_TTL_MS = 60_000;
 const TOOL_RUNNING_TTL_MS = 5_000;
 const TOOL_SCROLL_SPEED_PX_S = 2000;
@@ -239,6 +247,9 @@ type ShellSession = {
 };
 
 const queue = ref<FileReadEntry[]>([]);
+const appEl = ref<HTMLDivElement | null>(null);
+const outputEl = ref<HTMLElement | null>(null);
+const inputEl = ref<HTMLElement | null>(null);
 const canvasEl = ref<HTMLDivElement | null>(null);
 const outputDock = ref<{ dockEl: HTMLDivElement | null } | null>(null);
 const isFollowing = ref(true);
@@ -271,6 +282,13 @@ const resizeState = ref<{
   maxWidth: number;
   maxHeight: number;
 } | null>(null);
+const inputResizeState = ref<{
+  startY: number;
+  startHeight: number;
+  minHeight: number;
+  maxHeight: number;
+} | null>(null);
+const inputHeight = ref<number | null>(null);
 let nextWindowZIndex = 20;
 const selectedSessionStatus = ref<'busy' | 'idle' | ''>('');
 const messageIndexById = new Map<string, number>();
@@ -310,6 +328,10 @@ type WorktreeInfo = {
   directory: string;
 };
 
+type VcsInfo = {
+  branch: string;
+};
+
 type ProviderModel = {
   id: string;
   name?: string;
@@ -347,6 +369,9 @@ type CommandInfo = {
 
 const projects = ref<ProjectInfo[]>([]);
 const worktrees = ref<string[]>([]);
+const worktreeMetaByDir = ref<Record<string, VcsInfo>>({});
+const worktreeMetaRequestIdByDir = new Map<string, number>();
+let worktreeMetaRequestId = 0;
 const sessions = ref<SessionInfo[]>([]);
 const sessionParentById = shallowRef(new Map<string, string | undefined>());
 const providers = ref<ProviderInfo[]>([]);
@@ -465,6 +490,11 @@ function projectLabel(project: ProjectInfo) {
 function projectBaseDirectory(project: ProjectInfo) {
   if (project.worktree && project.worktree.trim()) return project.worktree;
   return project.id;
+}
+
+function normalizeDirectory(value: string) {
+  const trimmed = value.replace(/\/+$/, '');
+  return trimmed || value;
 }
 
 function sessionLabel(session: SessionInfo) {
@@ -676,8 +706,16 @@ function mergeReasoningContent(
 ) {
   if (!incoming) return prior;
   if (!prior) return incoming;
+  const ensureTrailingNewline = options?.ensureTrailingNewline ?? false;
+  if (ensureTrailingNewline && incoming.startsWith(prior)) {
+    const remainder = incoming.slice(prior.length);
+    if (!prior.endsWith('\n') && !remainder.startsWith('\n')) {
+      return `${prior}\n${remainder}`;
+    }
+    return incoming;
+  }
   let nextPrior = prior;
-  if (options?.ensureTrailingNewline && !nextPrior.endsWith('\n')) {
+  if (ensureTrailingNewline && !nextPrior.endsWith('\n')) {
     nextPrior = `${nextPrior}\n`;
   }
   if (incoming.startsWith(nextPrior)) return incoming;
@@ -803,6 +841,28 @@ function updateReasoningExpiry(sessionId: string | undefined, status: 'busy' | '
   });
 }
 
+function startInputResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  const output = outputEl.value;
+  const input = inputEl.value;
+  if (!output || !input) return;
+  const outputRect = output.getBoundingClientRect();
+  const inputRect = input.getBoundingClientRect();
+  const totalHeight = Math.max(0, outputRect.height + inputRect.height);
+  const minOutputHeight = 180;
+  const maxInputHeight = Math.max(120, totalHeight - minOutputHeight);
+  const minInputHeight = Math.min(200, maxInputHeight);
+  inputResizeState.value = {
+    startY: event.clientY,
+    startHeight: inputRect.height,
+    minHeight: minInputHeight,
+    maxHeight: maxInputHeight,
+  };
+  inputHeight.value = inputRect.height;
+  (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
 function startTermDrag(entry: FileReadEntry, event: PointerEvent) {
   if (event.button !== 0) return;
   bringToFront(entry);
@@ -865,6 +925,12 @@ function startTermResize(entry: FileReadEntry, event: PointerEvent) {
 }
 
 function handlePointerMove(event: PointerEvent) {
+  if (inputResizeState.value) {
+    const { startY, startHeight, minHeight, maxHeight } = inputResizeState.value;
+    const dy = event.clientY - startY;
+    inputHeight.value = clamp(startHeight - dy, minHeight, maxHeight);
+    return;
+  }
   if (resizeState.value) {
     const { entry, startX, startY, startWidth, startHeight, minWidth, minHeight, maxWidth, maxHeight } =
       resizeState.value;
@@ -888,6 +954,7 @@ function handlePointerMove(event: PointerEvent) {
 function handlePointerUp() {
   dragState.value = null;
   resizeState.value = null;
+  inputResizeState.value = null;
 }
 
 function getReasoningKey(sessionId?: string) {
@@ -934,13 +1001,29 @@ function scheduleReasoningScroll(messageKey: string) {
   });
 }
 
+function isNearBottom(target: HTMLElement, threshold = FLOATING_FOLLOW_THRESHOLD_PX) {
+  return target.scrollHeight - target.clientHeight - target.scrollTop <= threshold;
+}
+
+function updateFloatingFollow(entry: FileReadEntry, target: HTMLElement) {
+  const nextFollow = isNearBottom(target);
+  if (entry.follow !== nextFollow) entry.follow = nextFollow;
+}
+
 function handleFloatingScroll(entry: FileReadEntry, event: Event) {
   if (!entry.isReasoning && !entry.isSubagentMessage) return;
-  const target = event.target as HTMLElement | null;
+  const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
-  const distanceFromBottom = Math.abs(target.scrollHeight - target.scrollTop - target.clientHeight);
-  const nextFollow = distanceFromBottom <= 8;
-  if (entry.follow !== nextFollow) entry.follow = nextFollow;
+  updateFloatingFollow(entry, target);
+}
+
+function handleFloatingWheel(entry: FileReadEntry, event: WheelEvent) {
+  if (!entry.isReasoning && !entry.isSubagentMessage) return;
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  requestAnimationFrame(() => {
+    updateFloatingFollow(entry, target);
+  });
 }
 
 function scheduleToolScrollAnimation(toolKey: string) {
@@ -1147,6 +1230,43 @@ async function fetchWorktrees(directory?: string) {
   }
 }
 
+async function fetchWorktreeMeta(directory: string) {
+  const trimmed = directory.trim();
+  if (!trimmed) return;
+  const normalized = normalizeDirectory(trimmed);
+  const requestId = ++worktreeMetaRequestId;
+  worktreeMetaRequestIdByDir.set(normalized, requestId);
+  try {
+    const params = new URLSearchParams({ directory: trimmed });
+    const response = await fetch(`${OPENCODE_BASE_URL}/vcs?${params.toString()}`);
+    if (!response.ok) return;
+    const data = (await response.json()) as VcsInfo;
+    if (!data || typeof data.branch !== 'string') return;
+    if (worktreeMetaRequestIdByDir.get(normalized) !== requestId) return;
+    worktreeMetaByDir.value = {
+      ...worktreeMetaByDir.value,
+      [normalized]: { branch: data.branch },
+    };
+  } catch {
+    return;
+  }
+}
+
+function resolveWorktreeMetadata(list: string[]) {
+  const next: Record<string, VcsInfo> = {};
+  list.forEach((dir) => {
+    const normalized = normalizeDirectory(dir);
+    const existing = worktreeMetaByDir.value[normalized];
+    if (existing) next[normalized] = existing;
+  });
+  worktreeMetaByDir.value = next;
+  list.forEach((dir) => {
+    const normalized = normalizeDirectory(dir);
+    if (worktreeMetaByDir.value[normalized]) return;
+    void fetchWorktreeMeta(dir);
+  });
+}
+
 async function createWorktree() {
   worktreeError.value = '';
   if (!selectedProjectDirectory.value) {
@@ -1186,6 +1306,9 @@ async function deleteWorktree(directory: string) {
     worktreeError.value = 'Worktree base directory not set.';
     return;
   }
+  const baseDir = selectedProjectDirectory.value.replace(/\/+$/, '');
+  const targetDir = directory.replace(/\/+$/, '');
+  if (baseDir && targetDir === baseDir) return;
   try {
     const params = new URLSearchParams();
     params.set('directory', selectedProjectDirectory.value);
@@ -1862,7 +1985,7 @@ async function sendMessage() {
     if (!directory) return;
     const params = new URLSearchParams({ directory });
     const response = await fetch(
-      `${OPENCODE_BASE_URL}/session/${sessionId}/message?${params.toString()}`,
+      `${OPENCODE_BASE_URL}/session/${sessionId}/prompt_async?${params.toString()}`,
       {
       method: 'POST',
       headers: {
@@ -1894,7 +2017,9 @@ async function abortSession() {
   isAborting.value = true;
   sendStatus.value = 'Stopping...';
   try {
-    const response = await fetch(`${OPENCODE_BASE_URL}/session/${sessionId}/abort`, {
+    const directory = activeDirectory.value.trim();
+    const params = directory ? `?${new URLSearchParams({ directory }).toString()}` : '';
+    const response = await fetch(`${OPENCODE_BASE_URL}/session/${sessionId}/abort${params}`, {
       method: 'POST',
     });
     if (!response.ok) throw new Error(`Abort failed (${response.status})`);
@@ -1912,6 +2037,14 @@ watch(
     if (selectedProjectId.value) return;
     const preferred = nextProjects.find((project) => project.id !== 'global') ?? nextProjects[0];
     if (preferred) selectedProjectId.value = preferred.id;
+  },
+  { immediate: true },
+);
+
+watch(
+  worktrees,
+  (list) => {
+    resolveWorktreeMetadata(Array.isArray(list) ? list : []);
   },
   { immediate: true },
 );
@@ -3975,6 +4108,39 @@ onBeforeUnmount(() => {
 
 .app-input {
   flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  min-height: 200px;
+}
+
+.input-resizer {
+  position: absolute;
+  top: -8px;
+  left: 8px;
+  right: 8px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  z-index: 40;
+  touch-action: none;
+}
+
+.input-resizer::before {
+  content: '';
+  width: 44px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.6);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.6);
+}
+
+.input-resizer:hover::before {
+  background: rgba(226, 232, 240, 0.7);
 }
 
 .output-stage {
@@ -4119,9 +4285,9 @@ onBeforeUnmount(() => {
 
 .term {
   position: absolute;
-  font-size: 14px;
-  --term-line-height: 1;
-  --message-line-height: 1;
+  font-size: 13px;
+  --term-line-height: 1.2;
+  --message-line-height: 1.2;
   --term-border-color: #ccc;
   width: var(--term-width);
   height: var(--term-height);
@@ -4182,7 +4348,7 @@ onBeforeUnmount(() => {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  --message-line-height: 14px;
+  --message-line-height: 1.2;
   line-height: var(--message-line-height);
 }
 
@@ -4252,6 +4418,7 @@ onBeforeUnmount(() => {
 .term :deep(.line)::before {
   line-height: var(--term-line-height) !important;
 }
+
 
 .message-window :deep(pre.shiki),
 .message-window :deep(code),

@@ -181,7 +181,7 @@ defineExpose({ dockEl });
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  --message-line-height: 1;
+  --message-line-height: 1.2;
   line-height: var(--message-line-height);
 }
 
@@ -190,11 +190,19 @@ defineExpose({ dockEl });
   line-height: var(--message-line-height);
 }
 
-.message-dock .shiki-host :deep(pre),
-.message-dock .shiki-host :deep(code) {
-  line-height: 0 !important;
+.message-dock .shiki-host :deep(pre) {
   color: inherit;
   white-space: normal;
+}
+
+.message-dock .shiki-host :deep(code) {
+  color: inherit;
+  white-space: normal;
+  line-height: 0 !important;
+}
+
+.message-dock .shiki-host :deep(pre.shiki) {
+  line-height: 0 !important;
 }
 
 .message-dock .shiki-host :deep(.line),
@@ -208,9 +216,6 @@ defineExpose({ dockEl });
   word-break: break-word;
 }
 
-.message-dock .shiki-host :deep(.line) {
-  min-height: 1em;
-}
 
 .message-dock .shiki-host :deep(.line:empty)::after {
   content: ' ';
