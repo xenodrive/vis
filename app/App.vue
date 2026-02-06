@@ -211,6 +211,7 @@ type FileReadEntry = {
   role?: 'user' | 'assistant';
   toolStatus?: string;
   toolName?: string;
+  toolTitle?: string;
   messageId?: string;
   messageKey?: string;
   messageAgent?: string;
@@ -343,6 +344,7 @@ const shellPtyIdsBySessionId = new Map<string, Set<string>>();
 const pendingShellFits = new Map<string, number>();
 const permissionSendingById = ref<Record<string, boolean>>({});
 const permissionErrorById = ref<Record<string, string>>({});
+const pendingWorktreeMetaByDir = new Map<string, VcsInfo>();
 
 type ProjectInfo = {
   id: string;
@@ -925,6 +927,7 @@ function getEntryTitle(entry: FileReadEntry) {
     const sessionTitle = getSessionTitle(entry.sessionId);
     if (sessionTitle) return sessionTitle;
   }
+  if (entry.toolTitle) return entry.toolTitle;
   if (entry.toolName === 'read' && entry.path) return entry.path;
   if (entry.toolName) return entry.toolName;
   if (entry.path) return entry.path;
@@ -1443,7 +1446,10 @@ function resolveWorktreeMetadata(list: string[]) {
   list.forEach((dir) => {
     const normalized = normalizeDirectory(dir);
     const existing = worktreeMetaByDir.value[normalized];
+    const pending = pendingWorktreeMetaByDir.get(normalized);
     if (existing) next[normalized] = existing;
+    else if (pending) next[normalized] = pending;
+    if (pending) pendingWorktreeMetaByDir.delete(normalized);
   });
   worktreeMetaByDir.value = next;
   list.forEach((dir) => {
@@ -1451,6 +1457,39 @@ function resolveWorktreeMetadata(list: string[]) {
     if (worktreeMetaByDir.value[normalized]) return;
     void fetchWorktreeMeta(dir);
   });
+}
+
+function hasWorktreeDirectory(directory: string) {
+  const normalized = normalizeDirectory(directory);
+  return worktrees.value.some((entry) => normalizeDirectory(entry) === normalized);
+}
+
+function appendWorktreeDirectory(directory: string) {
+  const trimmed = directory.trim();
+  if (!trimmed) return;
+  if (hasWorktreeDirectory(trimmed)) return;
+  worktrees.value = [trimmed, ...worktrees.value];
+}
+
+function storePendingWorktreeMeta(directory: string, branch?: string) {
+  if (!branch) return;
+  const normalized = normalizeDirectory(directory);
+  pendingWorktreeMetaByDir.set(normalized, { branch });
+}
+
+async function handleWorktreeReady(event: { directory: string; branch?: string }) {
+  const directory = event.directory.trim();
+  if (!directory) return;
+  storePendingWorktreeMeta(directory, event.branch);
+  const selectedProject = selectedProjectId.value;
+  if (!selectedProject) return;
+  const project = projects.value.find((item) => item.id === selectedProject);
+  if (!project) return;
+  const candidates = projectSessionDirectories(project);
+  const normalized = normalizeDirectory(directory);
+  const matchesProject = candidates.some((entry) => normalizeDirectory(entry) === normalized);
+  if (!matchesProject) return;
+  appendWorktreeDirectory(directory);
 }
 
 async function createWorktree() {
@@ -2780,23 +2819,57 @@ function formatToolValue(value: unknown) {
   }
 }
 
+function extractToolOutputText(output: unknown) {
+  if (output === undefined) return undefined;
+  if (typeof output === 'string') return output;
+  if (output && typeof output === 'object') {
+    const outputRecord = output as Record<string, unknown>;
+    const outputContent =
+      (outputRecord.content as string | undefined) ??
+      (outputRecord.text as string | undefined) ??
+      (outputRecord.body as string | undefined) ??
+      (outputRecord.result as string | undefined);
+    if (typeof outputContent === 'string') return outputContent;
+    const stdout = outputRecord.stdout;
+    const stderr = outputRecord.stderr;
+    const parts: string[] = [];
+    if (typeof stdout === 'string' && stdout.length > 0) parts.push(stdout);
+    if (typeof stderr === 'string' && stderr.length > 0) parts.push(stderr);
+    if (parts.length > 0) return parts.join('\n');
+  }
+  return formatToolValue(output);
+}
+
 function parsePermissionRequest(value: unknown, fallbackSessionId?: string): PermissionRequest | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
   const id =
     (typeof record.id === 'string' && record.id) ||
+    (typeof record.permissionID === 'string' && record.permissionID) ||
     (typeof record.requestID === 'string' && record.requestID)
-      ? String(record.id ?? record.requestID)
+      ? String(record.id ?? record.permissionID ?? record.requestID)
       : undefined;
   const sessionID =
     (typeof record.sessionID === 'string' && record.sessionID) ||
     (typeof record.sessionId === 'string' && record.sessionId) ||
     (typeof record.session_id === 'string' && record.session_id) ||
     fallbackSessionId;
-  const permission = typeof record.permission === 'string' ? record.permission : undefined;
-  const patterns = Array.isArray(record.patterns)
-    ? record.patterns.filter((entry) => typeof entry === 'string')
-    : [];
+  const permission =
+    (typeof record.permission === 'string' && record.permission) ||
+    (typeof record.type === 'string' && record.type) ||
+    (typeof record.title === 'string' && record.title)
+      ? String(record.permission ?? record.type ?? record.title)
+      : undefined;
+  const patterns: string[] = [];
+  if (Array.isArray(record.patterns)) {
+    patterns.push(...record.patterns.filter((entry) => typeof entry === 'string'));
+  }
+  const patternValue = record.pattern;
+  if (typeof patternValue === 'string') {
+    patterns.push(patternValue);
+  } else if (Array.isArray(patternValue)) {
+    patterns.push(...patternValue.filter((entry) => typeof entry === 'string'));
+  }
   const always = Array.isArray(record.always)
     ? record.always.filter((entry) => typeof entry === 'string')
     : [];
@@ -2804,9 +2877,15 @@ function parsePermissionRequest(value: unknown, fallbackSessionId?: string): Per
     record.metadata && typeof record.metadata === 'object'
       ? (record.metadata as Record<string, unknown>)
       : {};
-  const toolRaw = record.tool && typeof record.tool === 'object' ? (record.tool as Record<string, unknown>) : null;
-  const toolMessageId = toolRaw && typeof toolRaw.messageID === 'string' ? toolRaw.messageID : undefined;
-  const toolCallId = toolRaw && typeof toolRaw.callID === 'string' ? toolRaw.callID : undefined;
+  const toolRaw =
+    record.tool && typeof record.tool === 'object' ? (record.tool as Record<string, unknown>) : null;
+  const toolMessageId =
+    (typeof record.messageID === 'string' && record.messageID) ||
+    (toolRaw && typeof toolRaw.messageID === 'string' ? toolRaw.messageID : undefined);
+  const toolCallId =
+    (typeof record.callID === 'string' && record.callID) ||
+    (typeof record.callId === 'string' && record.callId) ||
+    (toolRaw && typeof toolRaw.callID === 'string' ? toolRaw.callID : undefined);
   if (!id || !sessionID || !permission) return null;
   const tool = toolMessageId && toolCallId ? { messageID: toolMessageId, callID: toolCallId } : undefined;
   return {
@@ -3193,6 +3272,14 @@ function extractPatch(payload: unknown) {
     (record.properties && typeof record.properties === 'object'
       ? (record.properties as Record<string, unknown>)
       : undefined);
+  const data =
+    (record.data as Record<string, unknown> | undefined) ??
+    nestedPayload ??
+    (record.result as Record<string, unknown> | undefined);
+  const messageObject =
+    (properties?.message as Record<string, unknown> | undefined) ??
+    (data?.message as Record<string, unknown> | undefined) ??
+    (record.message as Record<string, unknown> | undefined);
   const part =
     (properties?.part && typeof properties.part === 'object'
       ? (properties.part as Record<string, unknown>)
@@ -3307,27 +3394,35 @@ function extractFileRead(payload: unknown, eventType: string) {
       (input?.path as string | undefined) ??
       (input?.name as string | undefined) ??
       `tool:${tool}`;
+    const outputText = output !== undefined ? extractToolOutputText(output) : undefined;
+    const toolTitle =
+      (typeof input?.command === 'string' && input.command.trim()) ||
+      (typeof state?.title === 'string' && state.title.trim()) ||
+      (Array.isArray(input?.args)
+        ? input.args.filter((entry) => typeof entry === 'string').join(' ')
+        : undefined);
+
+    if (tool === 'bash') {
+      return {
+        content: outputText ?? '',
+        path,
+        isWrite: false,
+        callId,
+        toolStatus: status,
+        toolName: tool,
+        toolTitle: toolTitle && toolTitle.trim() ? toolTitle : undefined,
+      };
+    }
+
     const blocks: string[] = [];
     const inputText = formatToolValue(input ?? {});
     blocks.push('input:');
     blocks.push(inputText);
 
     if (output !== undefined) {
-      let outputText: string | undefined;
-      if (typeof output === 'string') {
-        outputText = output;
-      } else if (output && typeof output === 'object') {
-        const outputRecord = output as Record<string, unknown>;
-        const outputContent =
-          (outputRecord.content as string | undefined) ??
-          (outputRecord.text as string | undefined) ??
-          (outputRecord.body as string | undefined) ??
-          (outputRecord.result as string | undefined);
-        if (typeof outputContent === 'string') outputText = outputContent;
-      }
-      if (!outputText) outputText = formatToolValue(output);
-      if (tool === 'read' && typeof outputText === 'string') {
-        const body = extractFileBodyFromReadOutput(outputText);
+      const outputValue = outputText ?? '';
+      if (tool === 'read' && typeof outputValue === 'string') {
+        const body = extractFileBodyFromReadOutput(outputValue);
         if (body) {
           return {
             content: body,
@@ -3340,7 +3435,7 @@ function extractFileRead(payload: unknown, eventType: string) {
         }
       }
       blocks.push('output:');
-      blocks.push(outputText);
+      blocks.push(outputValue);
     }
 
     const content = blocks.join('\n');
@@ -3778,6 +3873,9 @@ function extractPermissionAsked(payload: unknown, eventType: string) {
     (record.properties && typeof record.properties === 'object'
       ? (record.properties as Record<string, unknown>)
       : undefined);
+  const data =
+    (record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : undefined) ??
+    (record.result && typeof record.result === 'object' ? (record.result as Record<string, unknown>) : undefined);
   const type =
     (record.type as string | undefined) ??
     (record.event as string | undefined) ??
@@ -3785,8 +3883,14 @@ function extractPermissionAsked(payload: unknown, eventType: string) {
     eventType;
   if (!type) return null;
   const normalized = normalizeEventType(type);
-  if (normalized !== 'permissionasked') return null;
-  return parsePermissionRequest(properties, extractSessionId(payload));
+  if (
+    normalized !== 'permissionasked' &&
+    normalized !== 'permissionupdated' &&
+    normalized !== 'permissionupdate'
+  )
+    return null;
+  const request = properties ?? data;
+  return parsePermissionRequest(request, extractSessionId(payload));
 }
 
 function extractPermissionReplied(payload: unknown, eventType: string) {
@@ -3812,10 +3916,18 @@ function extractPermissionReplied(payload: unknown, eventType: string) {
   const normalized = normalizeEventType(type);
   if (normalized !== 'permissionreplied') return null;
   const requestID =
+    (properties?.permissionID as string | undefined) ??
+    (properties?.permissionId as string | undefined) ??
     (properties?.requestID as string | undefined) ??
     (properties?.id as string | undefined) ??
+    (record.permissionID as string | undefined) ??
     (record.id as string | undefined);
-  const reply = properties?.reply as PermissionReply | undefined;
+  const replyCandidate =
+    (properties?.response as string | undefined) ?? (properties?.reply as string | undefined);
+  const reply =
+    replyCandidate === 'once' || replyCandidate === 'always' || replyCandidate === 'reject'
+      ? (replyCandidate as PermissionReply)
+      : undefined;
   const sessionID =
     (properties?.sessionID as string | undefined) ??
     (properties?.sessionId as string | undefined) ??
@@ -4076,6 +4188,73 @@ function extractSessionInfo(payload: unknown, eventType: string) {
   return sessionInfo;
 }
 
+function extractWorktreeReady(payload: unknown, eventType: string) {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const type =
+    (record.type as string | undefined) ??
+    (record.event as string | undefined) ??
+    (nestedPayload?.type as string | undefined) ??
+    eventType;
+  if (!type) return null;
+  const normalized = normalizeEventType(type);
+  if (normalized !== 'worktreeready') return null;
+  const directory =
+    (typeof record.directory === 'string' && record.directory) ||
+    (typeof nestedPayload?.directory === 'string' && nestedPayload.directory) ||
+    (typeof properties?.directory === 'string' && properties.directory)
+      ? String(record.directory ?? nestedPayload?.directory ?? properties?.directory)
+      : undefined;
+  if (!directory) return null;
+  const branch = typeof properties?.branch === 'string' ? properties.branch : undefined;
+  return { directory, branch };
+}
+
+function extractProjectUpdated(payload: unknown, eventType: string) {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const nestedPayload =
+    record.payload && typeof record.payload === 'object'
+      ? (record.payload as Record<string, unknown>)
+      : undefined;
+  const properties =
+    (nestedPayload?.properties && typeof nestedPayload.properties === 'object'
+      ? (nestedPayload.properties as Record<string, unknown>)
+      : undefined) ??
+    (record.properties && typeof record.properties === 'object'
+      ? (record.properties as Record<string, unknown>)
+      : undefined);
+  const type =
+    (record.type as string | undefined) ??
+    (record.event as string | undefined) ??
+    (nestedPayload?.type as string | undefined) ??
+    eventType;
+  if (!type) return null;
+  const normalized = normalizeEventType(type);
+  if (normalized !== 'projectupdated' && normalized !== 'projectupdate') return null;
+  const id =
+    (typeof properties?.id === 'string' && properties.id) ||
+    (typeof record.id === 'string' && record.id) ||
+    undefined;
+  if (!id) return null;
+  const worktree = typeof properties?.worktree === 'string' ? properties.worktree : undefined;
+  const sandboxes = Array.isArray(properties?.sandboxes)
+    ? properties.sandboxes.filter((entry) => typeof entry === 'string')
+    : undefined;
+  return { id, worktree, sandboxes } as ProjectInfo;
+}
+
 function upsertToolEntry(
   entry: {
     content: string;
@@ -4084,6 +4263,7 @@ function upsertToolEntry(
     callId?: string;
     toolStatus?: string;
     toolName?: string;
+    toolTitle?: string;
   },
   eventType: string,
   langOverride?: string,
@@ -4117,11 +4297,14 @@ function upsertToolEntry(
   if (entry.toolName === 'read' && entry.toolStatus && entry.toolStatus !== 'completed') {
     return;
   }
-  const header = entry.path
-    ? `# ${entry.path}\n\n`
-    : eventType !== 'message'
-      ? `# ${eventType}\n\n`
-      : '';
+  const isBashTool = entry.toolName === 'bash';
+  const header = isBashTool
+    ? ''
+    : entry.path
+      ? `# ${entry.path}\n\n`
+      : eventType !== 'message'
+        ? `# ${eventType}\n\n`
+        : '';
   const time = Date.now();
   const text = `${header}${entry.content}`;
   const scrollDistance = 0;
@@ -4168,6 +4351,7 @@ function upsertToolEntry(
           callId: entry.callId,
           toolStatus: entry.toolStatus,
           toolName: entry.toolName,
+          toolTitle: entry.toolTitle ?? existing.toolTitle,
         });
         toolIndexByCallId.set(entry.callId, existingIndex);
         scheduleToolScrollAnimation(toolKey);
@@ -4196,6 +4380,7 @@ function upsertToolEntry(
     callId: entry.callId,
     toolStatus: entry.toolStatus,
     toolName: entry.toolName,
+    toolTitle: entry.toolTitle,
     zIndex: nextWindowZ(),
   });
   if (entry.callId) toolIndexByCallId.set(entry.callId, queue.value.length - 1);
@@ -4288,6 +4473,27 @@ function connect() {
       return;
     }
 
+    const worktreeReady = extractWorktreeReady(payload, resolvedEventType);
+    if (worktreeReady) {
+      void handleWorktreeReady(worktreeReady);
+    }
+
+    const projectUpdated = extractProjectUpdated(payload, resolvedEventType);
+    if (projectUpdated) {
+      upsertProject(projectUpdated);
+      if (selectedProjectId.value && projectUpdated.id === selectedProjectId.value) {
+        const list = projectSessionDirectories(projectUpdated);
+        if (list.length === 0) {
+          return;
+        }
+        const current = selectedWorktreeDir.value;
+        if (current && !list.includes(current)) list.unshift(current);
+        const baseDir = projectBaseDirectory(projectUpdated);
+        if (baseDir && !list.includes(baseDir)) list.unshift(baseDir);
+        worktrees.value = list;
+      }
+    }
+
     const sessionInfo = extractSessionInfo(payload, resolvedEventType);
     if (sessionInfo) {
       if (matchesSelectedProject(sessionInfo)) {
@@ -4302,6 +4508,14 @@ function connect() {
           upsertSessionGraph(sessionInfo);
           if (matchesWorktree) {
             upsertSessionFromEvent(sessionInfo);
+          }
+          if (
+            sessionInfo.directory &&
+            sessionInfo.projectID &&
+            selectedProjectId.value &&
+            sessionInfo.projectID === selectedProjectId.value
+          ) {
+            appendWorktreeDirectory(sessionInfo.directory);
           }
           if (sessionInfo.parentID) {
             subagentSessionExpiry.set(sessionInfo.id, Date.now() + SUBAGENT_ACTIVE_TTL_MS);

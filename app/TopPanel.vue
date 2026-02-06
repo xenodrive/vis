@@ -18,7 +18,7 @@
           </template>
         </Dropdown>
         <button type="button" class="control-button" @click="$emit('new-project')">
-          Open project
+          Open
         </button>
       </div>
       <div class="top-field">
