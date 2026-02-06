@@ -3,46 +3,47 @@
     <div class="top-row">
       <div class="top-field">
         <Dropdown
-          v-model="projectValue"
-          :label="selectedProjectLabel"
-          placeholder="Select project"
+          v-model="baseWorktreeValue"
+          :label="selectedBaseWorktreeLabel"
+          placeholder="Select directory"
           auto-close
         >
           <template #default>
             <div class="dropdown-list">
-              <div v-if="projects.length === 0" class="dropdown-empty">No projects</div>
-              <DropdownItem v-for="project in projects" :key="project.id" :value="project.id">
-                <span class="dropdown-item-label">{{ projectLabel(project) }}</span>
+              <div v-if="baseWorktrees.length === 0" class="dropdown-empty">No directories</div>
+              <DropdownItem v-for="dir in baseWorktrees" :key="dir" :value="dir">
+                <span class="dropdown-item-label">{{ dir }}</span>
               </DropdownItem>
             </div>
           </template>
         </Dropdown>
-        <button type="button" class="control-button" @click="$emit('new-project')">
+        <button type="button" class="control-button" @click="$emit('open-directory')">
           Open
         </button>
       </div>
+
       <div class="top-field">
         <Dropdown
-          v-model="worktreeValue"
-          :label="selectedWorktreeLabel"
+          v-model="activeDirectoryValue"
+          :label="selectedActiveDirectoryLabel"
           placeholder="Select worktree"
-          :disabled="!canManageWorktrees"
+          :disabled="!baseWorktree"
           auto-close
         >
           <template #default="{ close }">
             <div class="dropdown-list">
-              <div v-if="worktrees.length === 0" class="dropdown-empty">No worktrees</div>
+              <div v-if="activeDirectories.length === 0" class="dropdown-empty">No worktrees</div>
               <DropdownItem
-                v-for="directory in worktrees"
+                v-for="directory in activeDirectories"
                 :key="directory"
                 :value="directory"
               >
-                <span class="dropdown-item-label">{{ worktreeLabel(directory) }}</span>
+                <span class="dropdown-item-label">{{ activeDirectoryLabel(directory) }}</span>
                 <button
-                  v-if="canDeleteWorktree(directory)"
+                  v-if="canDeleteActiveDirectory(directory)"
                   type="button"
                   class="dropdown-delete"
-                  @click.stop="handleWorktreeDelete(directory, close)"
+                  @click.stop="handleActiveDirectoryDelete(directory, close)"
                 >
                   Delete
                 </button>
@@ -53,18 +54,19 @@
         <button
           type="button"
           class="control-button"
-          :disabled="!canManageWorktrees"
-          @click="$emit('new-worktree')"
+          :disabled="!baseWorktree"
+          @click="$emit('create-worktree')"
         >
           Add
         </button>
       </div>
+
       <div class="top-field">
         <Dropdown
           v-model="sessionValue"
           :label="selectedSessionLabel"
           placeholder="Select session"
-          :disabled="!canManageSessions"
+          :disabled="!activeDirectory"
           auto-close
         >
           <template #default="{ close }">
@@ -95,10 +97,6 @@
 import { computed } from 'vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
-type ProjectInfo = {
-  id: string;
-  worktree?: string;
-};
 
 type SessionInfo = {
   id: string;
@@ -110,30 +108,34 @@ type SessionInfo = {
 };
 
 const props = defineProps<{
-  projects: ProjectInfo[];
-  worktrees: string[];
-  worktreeMeta?: Record<string, { branch?: string }>;
+  baseWorktrees: string[];
+  baseWorktree: string;
+  activeDirectories: string[];
+  activeDirectory: string;
+  activeDirectoryMeta?: Record<string, { branch?: string }>;
   sessions: SessionInfo[];
-  selectedProjectId: string;
-  selectedWorktreeDir: string;
   selectedSessionId: string;
-  worktreeBase?: string;
 }>();
 
 const emit = defineEmits<{
-  (event: 'update:selected-project-id', value: string): void;
-  (event: 'update:selected-worktree-dir', value: string): void;
+  (event: 'update:base-worktree', value: string): void;
+  (event: 'update:active-directory', value: string): void;
   (event: 'update:selected-session-id', value: string): void;
-  (event: 'new-project'): void;
-  (event: 'new-worktree'): void;
+  (event: 'open-directory'): void;
+  (event: 'create-worktree'): void;
   (event: 'new-session'): void;
-  (event: 'delete-worktree', value: string): void;
+  (event: 'delete-active-directory', value: string): void;
   (event: 'delete-session', value: string): void;
 }>();
 
-const projectValue = computed({
-  get: () => props.selectedProjectId,
-  set: (value) => emit('update:selected-project-id', value),
+const baseWorktreeValue = computed({
+  get: () => props.baseWorktree,
+  set: (value) => emit('update:base-worktree', value),
+});
+
+const activeDirectoryValue = computed({
+  get: () => props.activeDirectory,
+  set: (value) => emit('update:active-directory', value),
 });
 
 const sessionValue = computed({
@@ -141,70 +143,47 @@ const sessionValue = computed({
   set: (value) => emit('update:selected-session-id', value),
 });
 
-const worktreeValue = computed({
-  get: () => props.selectedWorktreeDir,
-  set: (value) => emit('update:selected-worktree-dir', value),
+const selectedBaseWorktreeLabel = computed(() => props.baseWorktree || '');
+
+const selectedActiveDirectoryLabel = computed(() => {
+  if (!props.activeDirectory) return '';
+  return activeDirectoryLabel(props.activeDirectory);
 });
-
-const canManageWorktrees = computed(() => Boolean(props.worktreeBase));
-const canManageSessions = computed(() =>
-  Boolean(props.selectedWorktreeDir || props.worktreeBase),
-);
-
-const selectedProjectLabel = computed(() => {
-  const project = props.projects.find((item) => item.id === props.selectedProjectId);
-  return project ? projectLabel(project) : '';
-});
-
-const selectedWorktreeLabel = computed(() =>
-  props.selectedWorktreeDir ? worktreeLabel(props.selectedWorktreeDir) : '',
-);
 
 const selectedSessionLabel = computed(() => {
   const session = props.sessions.find((item) => item.id === props.selectedSessionId);
   return session ? sessionLabel(session) : '';
 });
 
-function projectLabel(project: ProjectInfo) {
-  if (project.id === 'global') return 'global /';
-  if (project.worktree) return project.worktree;
-  return project.id;
-}
-
 function sessionLabel(session: SessionInfo) {
   const base = session.title || session.slug || session.id;
   return `${base} (${session.id.slice(0, 6)})`;
 }
 
-function worktreeLabel(directory: string) {
-  const base = props.worktreeBase?.replace(/\/+$/, '') ?? '';
-  const branch = worktreeBranch(directory);
+function activeDirectoryLabel(directory: string) {
+  const branch = activeDirectoryBranch(directory);
   if (branch) return branch;
-  if (base && directory.startsWith(base)) {
-    const trimmed = directory.slice(base.length).replace(/^\/+/, '');
-    if (trimmed) return `./${trimmed}`;
-  }
   return directory;
 }
 
-function normalizeWorktreePath(value: string) {
+function normalizeDirectory(value: string) {
   const trimmed = value.replace(/\/+$/, '');
   return trimmed || value;
 }
 
-function worktreeBranch(directory: string) {
-  const key = normalizeWorktreePath(directory);
-  return props.worktreeMeta?.[key]?.branch ?? '';
+function activeDirectoryBranch(directory: string) {
+  const key = normalizeDirectory(directory);
+  return props.activeDirectoryMeta?.[key]?.branch ?? '';
 }
 
-function canDeleteWorktree(directory: string) {
-  const base = normalizeWorktreePath(props.worktreeBase ?? '');
+function canDeleteActiveDirectory(directory: string) {
+  const base = normalizeDirectory(props.baseWorktree);
   if (!base) return true;
-  return normalizeWorktreePath(directory) !== base;
+  return normalizeDirectory(directory) !== base;
 }
 
-function handleWorktreeDelete(id: string, close?: () => void) {
-  emit('delete-worktree', id);
+function handleActiveDirectoryDelete(directory: string, close?: () => void) {
+  emit('delete-active-directory', directory);
   close?.();
 }
 
@@ -285,5 +264,10 @@ function handleSessionDelete(id: string, close?: () => void) {
   padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
