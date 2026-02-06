@@ -1834,6 +1834,7 @@ async function fetchPendingPermissions() {
     data
       .map((entry) => parsePermissionRequest(entry))
       .filter((entry): entry is PermissionRequest => Boolean(entry))
+      .filter((entry) => isPermissionSessionAllowed(entry))
       .forEach((entry) => {
         upsertPermissionEntry(entry);
       });
@@ -2600,6 +2601,14 @@ watch(selectedSessionId, () => {
   void fetchSessionStatus(activeDirectory.value || undefined);
 },
 { immediate: true });
+
+watch(
+  allowedSessionIds,
+  () => {
+    prunePermissionEntries();
+  },
+  { immediate: true },
+);
 
 watch(
   [selectedProjectId, selectedSessionId],
@@ -4054,12 +4063,38 @@ function getPermissionError(requestId: string) {
   return permissionErrorById.value[requestId] ?? '';
 }
 
-async function sendPermissionReply(requestId: string, reply: PermissionReply) {
-  const response = await fetch(`${OPENCODE_BASE_URL}/permission/${requestId}/reply`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reply }),
+function isPermissionSessionAllowed(request: PermissionRequest) {
+  const allowed = allowedSessionIds.value;
+  if (!request.sessionID) return false;
+  if (allowed.size === 0) return false;
+  return allowed.has(request.sessionID);
+}
+
+function prunePermissionEntries() {
+  const allowed = allowedSessionIds.value;
+  const toRemove = new Set<string>();
+  queue.value.forEach((entry) => {
+    if (!entry.isPermission || !entry.permissionRequest) return;
+    if (!allowed.has(entry.permissionRequest.sessionID)) {
+      toRemove.add(entry.permissionRequest.id);
+    }
   });
+  toRemove.forEach((requestId) => removePermissionEntry(requestId));
+}
+
+async function sendPermissionReply(requestId: string, reply: PermissionReply) {
+  const directory = activeDirectory.value.trim();
+  const params = new URLSearchParams();
+  if (directory) params.set('directory', directory);
+  const query = params.toString();
+  const response = await fetch(
+    `${OPENCODE_BASE_URL}/permission/${requestId}/reply${query ? `?${query}` : ''}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reply }),
+    },
+  );
   if (!response.ok) throw new Error(`Permission reply failed (${response.status})`);
 }
 
@@ -4469,7 +4504,9 @@ function connect() {
     }
     const permissionAsked = extractPermissionAsked(payload, resolvedEventType);
     if (permissionAsked) {
-      upsertPermissionEntry(permissionAsked);
+      if (isPermissionSessionAllowed(permissionAsked)) {
+        upsertPermissionEntry(permissionAsked);
+      }
       return;
     }
 
