@@ -5626,9 +5626,15 @@ onBeforeUnmount(() => {
 }
 
 .term.is-message {
-  background: #0e0e0e;
-  border-color: #4a4a4a;
-  --term-border-color: #4a4a4a;
+  background: #1a0b1a;
+  border-color: #a855f7;
+  --term-border-color: #a855f7;
+}
+
+.term.is-message .term-titlebar {
+  background: rgba(168, 85, 247, 0.18);
+  color: #d8b4fe;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.35);
 }
 
 .term.is-shell {
@@ -5645,16 +5651,16 @@ onBeforeUnmount(() => {
 
 .term.is-apply-patch,
 .term.is-write {
-  background: #0b1610;
-  border-color: #34d399;
-  --term-border-color: #34d399;
+  background: #0b1a2a;
+  border-color: #3b82f6;
+  --term-border-color: #3b82f6;
 }
 
 .term.is-apply-patch .term-titlebar,
 .term.is-write .term-titlebar {
-  background: rgba(52, 211, 153, 0.18);
-  color: #bbf7d0;
-  border-bottom: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .term.is-tasklist {
