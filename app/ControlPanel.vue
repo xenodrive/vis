@@ -84,9 +84,15 @@
             title="Model (Ctrl-M)"
           >
             <option v-if="!hasModelOptions" value="">Loading models...</option>
-            <option v-for="model in modelOptions" :key="model.id" :value="model.id">
-              {{ model.label }}
-            </option>
+            <optgroup
+              v-for="group in groupedModelOptions"
+              :key="group.providerID"
+              :label="group.label"
+            >
+              <option v-for="model in group.models" :key="model.id" :value="model.id">
+                {{ model.label }}
+              </option>
+            </optgroup>
           </select>
         </div>
         <div class="control-field compact">
@@ -136,7 +142,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-type ModelOption = { id: string; label: string };
+type ModelOption = { id: string; label: string; providerID?: string; providerLabel?: string };
 type CommandOption = { name: string; description?: string; hints?: string[] };
 
 const props = defineProps<{
@@ -407,6 +413,25 @@ const modelValue = computed({
 const thinkingValue = computed({
   get: () => props.selectedThinking,
   set: (value) => emit('update:selected-thinking', value),
+});
+
+const groupedModelOptions = computed(() => {
+  const grouped = new Map<string, { providerID: string; label: string; models: ModelOption[] }>();
+  (props.modelOptions ?? []).forEach((model) => {
+    const providerID = model.providerID?.trim() || 'unknown';
+    const providerLabel = model.providerLabel?.trim() || providerID;
+    const existing = grouped.get(providerID);
+    if (existing) {
+      existing.models.push(model);
+      return;
+    }
+    grouped.set(providerID, {
+      providerID,
+      label: providerLabel,
+      models: [model],
+    });
+  });
+  return Array.from(grouped.values());
 });
 
 const textareaToneClass = computed(() => {

@@ -545,7 +545,13 @@ const providers = ref<ProviderInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
 const commands = ref<CommandInfo[]>([]);
 const modelOptions = ref<
-  Array<{ id: string; label: string; providerID?: string; variants?: Record<string, unknown> }>
+  Array<{
+    id: string;
+    label: string;
+    providerID?: string;
+    providerLabel?: string;
+    variants?: Record<string, unknown>;
+  }>
 >([]);
 const agentOptions = ref<Array<{ id: string; label: string }>>([]);
 const thinkingOptions = ref<Array<string | undefined>>([]);
@@ -2288,22 +2294,31 @@ async function fetchProviders() {
       id: string;
       label: string;
       providerID?: string;
+      providerLabel?: string;
       variants?: Record<string, unknown>;
     }> = [];
     providers.value.forEach((provider) => {
       Object.values(provider.models ?? {}).forEach((model) => {
-        const providerLabel = provider.id || model.providerID || 'unknown';
-        const modelLabel = model.name ? `${model.name} (${model.id})` : model.id;
-        const label = `[${providerLabel}] ${modelLabel}`;
+        const providerID = model.providerID?.trim() || provider.id?.trim() || 'unknown';
+        const providerLabel = provider.name?.trim() || providerID;
+        const modelDisplayName = model.name?.trim() || model.id;
+        const label = `${modelDisplayName} [${providerID}/${model.id}]`;
         models.push({
           id: model.id,
           label,
-          providerID: model.providerID ?? provider.id,
+          providerID,
+          providerLabel: providerLabel,
           variants: model.variants,
         });
       });
     });
-    models.sort((a, b) => a.label.localeCompare(b.label));
+    models.sort((a, b) => {
+      const providerA = a.providerLabel ?? a.providerID ?? 'unknown';
+      const providerB = b.providerLabel ?? b.providerID ?? 'unknown';
+      const providerCompare = providerA.localeCompare(providerB);
+      if (providerCompare !== 0) return providerCompare;
+      return a.label.localeCompare(b.label);
+    });
     const sameModels =
       models.length === modelOptions.value.length &&
       models.every((model, index) => model.id === modelOptions.value[index]?.id);
@@ -2348,7 +2363,10 @@ async function fetchAgents() {
     const options = agents.value
       .filter((agent) => agent.mode === 'primary')
       .filter((agent) => !agent.hidden)
-      .map((agent) => ({ id: agent.name, label: agent.name }));
+      .map((agent) => ({
+        id: agent.name,
+        label: agent.name ? `${agent.name.charAt(0).toUpperCase()}${agent.name.slice(1)}` : agent.name,
+      }));
     options.sort((a, b) => a.label.localeCompare(b.label));
     agentOptions.value = options;
     if (!selectedMode.value || !options.some((option) => option.id === selectedMode.value)) {
