@@ -433,6 +433,18 @@ function onFloatingWheel(event: WheelEvent) {
   content: attr(data-gutter);
 }
 
+.shiki-host :deep(.line .grep-match) {
+  color: #fef08a;
+  background: rgba(234, 179, 8, 0.3);
+  border-radius: 2px;
+  padding: 0 0.08em;
+  font-weight: 700;
+}
+
+.shiki-host :deep(.line .grep-match strong) {
+  font-weight: inherit;
+}
+
 .shiki-host.is-message :deep(.line) {
   padding-left: 0;
   white-space: pre-wrap;

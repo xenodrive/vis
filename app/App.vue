@@ -249,6 +249,7 @@ type FileReadEntry = {
   toolName?: string;
   toolTitle?: string;
   toolLang?: string;
+  grepPattern?: string;
   toolWrapMode?: 'default' | 'soft';
   toolGutterMode?: 'default' | 'none' | 'grep-source';
   toolGutterLines?: string[];
@@ -4313,6 +4314,57 @@ function parseGrepOutputWithSourceLines(output: string) {
   };
 }
 
+function buildGrepMatcher(pattern?: string) {
+  if (!pattern?.trim()) return null;
+  try {
+    return new RegExp(pattern, 'g');
+  } catch {
+    return null;
+  }
+}
+
+function highlightGrepMatches(line: string, matcher: RegExp | null) {
+  if (!matcher) return escapeHtml(line);
+  matcher.lastIndex = 0;
+  let html = '';
+  let cursor = 0;
+  while (cursor <= line.length) {
+    const match = matcher.exec(line);
+    if (!match) break;
+    const index = match.index;
+    const value = match[0] ?? '';
+    if (index > cursor) {
+      html += escapeHtml(line.slice(cursor, index));
+    }
+    if (!value) {
+      if (index >= line.length) break;
+      html += escapeHtml(line[index] ?? '');
+      cursor = index + 1;
+      matcher.lastIndex = cursor;
+      continue;
+    }
+    html += `<span class="grep-match"><strong>${escapeHtml(value)}</strong></span>`;
+    cursor = index + value.length;
+    if (!matcher.global) break;
+    if (matcher.lastIndex <= index) matcher.lastIndex = index + value.length;
+  }
+  if (cursor < line.length) html += escapeHtml(line.slice(cursor));
+  return html;
+}
+
+function renderGrepHtml(text: string, pattern?: string, gutterLines?: string[]) {
+  const matcher = buildGrepMatcher(pattern);
+  const lines = text.split('\n');
+  const htmlLines = lines
+    .map((line, index) => {
+      const content = highlightGrepMatches(line, matcher);
+      const gutter = gutterLines?.[index] ?? '';
+      return `<span class="line" data-gutter="${escapeHtml(gutter)}">${content}</span>`;
+    })
+    .join('\n');
+  return `<pre class="shiki"><code>${htmlLines}</code></pre>`;
+}
+
 function formatGlobToolTitle(input: Record<string, unknown> | undefined) {
   const pattern = typeof input?.pattern === 'string' ? input.pattern.trim() : '';
   const path = typeof input?.path === 'string' ? input.path.trim() : '';
@@ -5075,8 +5127,16 @@ function applyToolLineGutters(html: string, gutterLines?: string[]) {
 function buildEntryHtml(
   text: string,
   lang: string,
-  options?: { toolGutterMode?: FileReadEntry['toolGutterMode']; toolGutterLines?: string[] },
+  options?: {
+    toolName?: string;
+    grepPattern?: string;
+    toolGutterMode?: FileReadEntry['toolGutterMode'];
+    toolGutterLines?: string[];
+  },
 ) {
+  if (options?.toolName === 'grep') {
+    return renderGrepHtml(text, options.grepPattern, options.toolGutterLines);
+  }
   const html = buildHtml(text, lang);
   if (options?.toolGutterMode === 'grep-source') {
     return applyToolLineGutters(html, options.toolGutterLines);
@@ -5440,6 +5500,7 @@ function extractFileRead(payload: unknown, eventType: string) {
     let path: string | undefined;
     let toolTitle: string | undefined;
     let lang: string | undefined;
+    let grepPattern: string | undefined;
     let wrapMode: FileReadEntry['toolWrapMode'];
     let gutterMode: FileReadEntry['toolGutterMode'];
     let gutterLines: string[] | undefined;
@@ -5463,6 +5524,7 @@ function extractFileRead(payload: unknown, eventType: string) {
       }
       case 'grep': {
         path = typeof input?.path === 'string' ? input.path : undefined;
+        grepPattern = typeof input?.pattern === 'string' ? input.pattern : undefined;
         toolTitle = formatGlobToolTitle(input);
         if (outputText) {
           const parsed = parseGrepOutputWithSourceLines(outputText);
@@ -5582,6 +5644,7 @@ function extractFileRead(payload: unknown, eventType: string) {
       toolName: tool,
       toolTitle: toolTitle?.trim() ? toolTitle.trim() : undefined,
       lang,
+      grepPattern,
       wrapMode,
       gutterMode,
       gutterLines,
@@ -6724,6 +6787,7 @@ function upsertToolEntry(
     toolName?: string;
     toolTitle?: string;
     lang?: string;
+    grepPattern?: string;
     wrapMode?: FileReadEntry['toolWrapMode'];
     gutterMode?: FileReadEntry['toolGutterMode'];
     gutterLines?: string[];
@@ -6790,6 +6854,7 @@ function upsertToolEntry(
         const nextWrapMode = entry.wrapMode ?? existing.toolWrapMode;
         const nextGutterMode = entry.gutterMode ?? existing.toolGutterMode;
         const nextGutterLines = entry.gutterLines ?? existing.toolGutterLines;
+        const nextGrepPattern = entry.grepPattern ?? existing.grepPattern;
         const nextLang =
           langOverride ??
           entry.lang ??
@@ -6811,6 +6876,8 @@ function upsertToolEntry(
             scrollDistance,
             scrollDuration,
             html: buildEntryHtml(nextText, nextLang, {
+              toolName: entry.toolName ?? existing.toolName,
+              grepPattern: nextGrepPattern,
               toolGutterMode: nextGutterMode,
               toolGutterLines: nextGutterLines,
             }),
@@ -6821,6 +6888,7 @@ function upsertToolEntry(
             toolName: entry.toolName,
             toolTitle: entry.toolTitle ?? existing.toolTitle,
             toolLang: nextLang,
+            grepPattern: nextGrepPattern,
             toolWrapMode: nextWrapMode,
             toolGutterMode: nextGutterMode,
             toolGutterLines: nextGutterLines,
@@ -6847,6 +6915,8 @@ function upsertToolEntry(
     scrollDistance,
     scrollDuration,
     html: buildEntryHtml(text, lang, {
+      toolName: entry.toolName,
+      grepPattern: entry.grepPattern,
       toolGutterMode: entry.gutterMode,
       toolGutterLines: entry.gutterLines,
     }),
@@ -6857,6 +6927,7 @@ function upsertToolEntry(
     toolName: entry.toolName,
     toolTitle: entry.toolTitle,
     toolLang: lang,
+    grepPattern: entry.grepPattern,
     toolWrapMode: entry.wrapMode,
     toolGutterMode: entry.gutterMode,
     toolGutterLines: entry.gutterLines,
@@ -7457,6 +7528,8 @@ onMounted(() => {
         return {
           ...entry,
           html: buildEntryHtml(text, lang, {
+            toolName: entry.toolName,
+            grepPattern: entry.grepPattern,
             toolGutterMode: entry.toolGutterMode,
             toolGutterLines: entry.toolGutterLines,
           }),
@@ -7468,6 +7541,8 @@ onMounted(() => {
         return {
           ...entry,
           html: buildEntryHtml(entry.content, lang, {
+            toolName: entry.toolName,
+            grepPattern: entry.grepPattern,
             toolGutterMode: entry.toolGutterMode,
             toolGutterLines: entry.toolGutterLines,
           }),
