@@ -236,7 +236,10 @@ function onRowClick(row: { node: TreeNode }) {
 }
 
 function onRowDoubleClick(row: { node: TreeNode }) {
-  if (row.node.type !== 'directory' && !row.node.synthetic) emit('open-file', row.node.path);
+  if (row.node.type === 'directory') return;
+  // Allow opening synthetic nodes when they represent newly added files (they exist on disk)
+  if (row.node.synthetic && statusFor(row.node.path) !== 'added') return;
+  emit('open-file', row.node.path);
 }
 </script>
 

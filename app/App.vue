@@ -5479,6 +5479,7 @@ function reloadSelectedSessionState() {
     void restoreShellSessions(selectedSessionId.value);
     void reloadTodosForAllowedSessions();
     void refreshSessionDiff();
+    void loadTreePath('.');
     const directory = activeDirectory.value || undefined;
     void fetchPendingPermissions(directory);
     void fetchPendingQuestions(directory);
@@ -9555,9 +9556,12 @@ function connect() {
         (properties?.diff as unknown[] | undefined) ?? (payloadObj?.diff as unknown[] | undefined);
       if (Array.isArray(diffEntries)) {
         const entries = normalizeSessionDiffEntries(diffEntries);
+        const hadAdded = entries.some((e) => e.status === 'added');
         updateSessionDiffState(entries);
+        if (hadAdded) void loadTreePath('.');
       } else {
         void refreshSessionDiff();
+        void loadTreePath('.');
       }
       return;
     }
