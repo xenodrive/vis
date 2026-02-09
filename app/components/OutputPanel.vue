@@ -41,6 +41,11 @@
                 </template>
               </div>
 
+              <!-- Target agent/model separator -->
+              <div v-if="formatRoundTargetLabel(q)" class="ib-round-target" :style="getRoundTargetStyle(q)">
+                {{ formatRoundTargetLabel(q) }}
+              </div>
+
               <!-- Assistant response area (no collapse, fade transition per message) -->
               <div
                 v-if="hasAssistantMessages(q)"
@@ -53,9 +58,6 @@
                         class="ib-msg-block ib-msg-assistant"
                         :key="getGroupTransitionKey(group)"
                       >
-                        <div class="ib-sender" :style="getSenderStyle(group)">
-                          {{ formatSenderLabel(group) }}
-                        </div>
                         <div class="ib-msg-body">
                           <MessageViewer
                             :code="group.messages[group.messages.length - 1]?.content ?? ''"
@@ -405,9 +407,25 @@ function formatSenderLabel(group: MessageGroup): string {
   return parts.join(' ') || 'Assistant';
 }
 
+function formatRoundTargetLabel(entry: FileReadEntry): string {
+  const parts: string[] = [];
+  if (entry.messageAgent) parts.push(capitalize(entry.messageAgent));
+  const modelPath = entry.messageProviderId && entry.messageModelId
+    ? `${entry.messageProviderId}/${entry.messageModelId}`
+    : (entry.messageModel || '');
+  if (modelPath) parts.push(modelPath);
+  if (entry.messageVariant) parts.push(`(${entry.messageVariant})`);
+  return parts.join(' ');
+}
+
 function getSenderStyle(group: MessageGroup) {
   if (group.role === 'user') return { color: '#94a3b8' }; // gray
   const color = props.resolveAgentColor ? props.resolveAgentColor(group.agent) : '#4ade80';
+  return { color };
+}
+
+function getRoundTargetStyle(entry: FileReadEntry) {
+  const color = props.resolveAgentColor ? props.resolveAgentColor(entry.messageAgent) : '#4ade80';
   return { color };
 }
 
@@ -997,6 +1015,13 @@ defineExpose({ panelEl });
   padding-left: 8px;
   width: 100%;
   box-sizing: border-box;
+}
+
+.ib-round-target {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 4px;
+  opacity: 0.7;
 }
 
 .ib-msg-block {
