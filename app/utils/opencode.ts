@@ -1,6 +1,9 @@
 type QueryValue = string | number | boolean | undefined;
 
 type JsonBody = Record<string, unknown> | Array<unknown>;
+type RequestOptions = {
+  instanceDirectory?: string;
+};
 
 function buildQuery(params?: Record<string, QueryValue>) {
   if (!params) return '';
@@ -31,8 +34,22 @@ async function parseJson(response: Response) {
   }
 }
 
-async function getJson(baseUrl: string, path: string, params?: Record<string, QueryValue>) {
-  const response = await fetch(createUrl(baseUrl, path, params));
+function buildHeaders(options?: RequestOptions, contentType?: string) {
+  const headers: Record<string, string> = {};
+  if (contentType) headers['Content-Type'] = contentType;
+  if (options?.instanceDirectory) headers['x-opencode-directory'] = options.instanceDirectory;
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+async function getJson(
+  baseUrl: string,
+  path: string,
+  params?: Record<string, QueryValue>,
+  options?: RequestOptions,
+) {
+  const response = await fetch(createUrl(baseUrl, path, params), {
+    headers: buildHeaders(options),
+  });
   if (!response.ok) throw new Error(`${path} request failed (${response.status})`);
   return parseJson(response);
 }
@@ -41,11 +58,11 @@ async function sendJson(
   baseUrl: string,
   path: string,
   method: 'POST' | 'PUT' | 'DELETE',
-  options: { params?: Record<string, QueryValue>; body?: JsonBody },
+  options: { params?: Record<string, QueryValue>; body?: JsonBody; request?: RequestOptions },
 ) {
   const response = await fetch(createUrl(baseUrl, path, options.params), {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildHeaders(options.request, 'application/json'),
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   if (!response.ok) throw new Error(`${path} request failed (${response.status})`);
@@ -94,20 +111,33 @@ export function getCurrentProject(baseUrl: string, directory?: string) {
 
 export function listSessions(
   baseUrl: string,
-  options: { directory?: string; roots?: boolean; search?: string; limit?: number } = {},
+  options: {
+    directory?: string;
+    roots?: boolean;
+    search?: string;
+    limit?: number;
+    instanceDirectory?: string;
+  } = {},
 ) {
   return getJson(baseUrl, '/session', {
     directory: options.directory,
     roots: options.roots ? 'true' : undefined,
     search: options.search,
     limit: options.limit,
+  }, {
+    instanceDirectory: options.instanceDirectory,
   }) as Promise<unknown>;
 }
 
-export function getSessionChildren(baseUrl: string, sessionId: string, directory?: string) {
+export function getSessionChildren(
+  baseUrl: string,
+  sessionId: string,
+  directory?: string,
+  request?: RequestOptions,
+) {
   return getJson(baseUrl, `/session/${sessionId}/children`, {
     directory,
-  }) as Promise<unknown>;
+  }, request) as Promise<unknown>;
 }
 
 export function listWorktrees(baseUrl: string, directory: string) {
@@ -182,8 +212,12 @@ export function listCommands(baseUrl: string, directory?: string) {
   return getJson(baseUrl, '/command', { directory }) as Promise<unknown>;
 }
 
-export function getSessionStatusMap(baseUrl: string, directory?: string) {
-  return getJson(baseUrl, '/session/status', { directory }) as Promise<unknown>;
+export function getSessionStatusMap(
+  baseUrl: string,
+  directory?: string,
+  request?: RequestOptions,
+) {
+  return getJson(baseUrl, '/session/status', { directory }, request) as Promise<unknown>;
 }
 
 export function listPendingPermissions(baseUrl: string, directory?: string) {

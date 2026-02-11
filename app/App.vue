@@ -1,119 +1,136 @@
 <template>
   <div ref="appEl" class="app">
-    <header class="app-header">
-      <TopPanel
-        :base-worktrees="baseWorktreeOptions"
-        :base-worktree="selectedProjectDirectory"
-        :active-directories="worktrees"
-        :active-directory="selectedWorktreeDir"
-        :active-directory-meta="worktreeMetaByDir"
-        :sessions="filteredSessions"
-        :session-status-by-id="sessionStatusByIdRecord"
-        :home-path="homePath"
-        v-model:base-worktree="selectedProjectDirectory"
-        v-model:active-directory="selectedWorktreeDir"
-        v-model:selected-session-id="selectedSessionId"
-        @open-directory="openProjectPicker"
-        @create-worktree="createWorktree"
-        @new-session="createNewSession"
-        @delete-active-directory="deleteWorktree"
-        @delete-session="deleteSession"
-      />
-    </header>
-    <main ref="outputEl" class="app-output">
-      <div class="output-workspace">
-        <div class="tool-window-layer" :class="{ 'todo-collapsed': sidePanelCollapsed }">
-          <div class="output-split" :class="{ 'todo-collapsed': sidePanelCollapsed }">
-            <OutputPanel
-              ref="outputPanelRef"
-              class="output-panel"
-              :queue="queue"
-              :is-following="isFollowing"
-              :status-text="statusText"
-              :is-status-error="isStatusError"
-              :is-thinking="isThinking"
-              :is-retry-status="!!retryStatus"
-              :busy-descendant-count="busyDescendantSessionIds.length"
-              :theme="shikiTheme"
-              :resolve-agent-color="resolveAgentColorForName"
-              :message-diffs="messageDiffsByKey"
-              @scroll="handleOutputPanelScroll"
-              @wheel="handleOutputPanelWheel"
-              @touchmove="handleOutputPanelScroll"
-              @resume-follow="resumeFollow"
-              @fork-message="handleForkMessage"
-              @revert-message="handleRevertMessage"
-              @show-message-diff="handleShowMessageDiff"
-              @show-message-history="handleShowMessageHistory"
-            />
-            <SidePanel
-              class="todo-panel"
-              :collapsed="sidePanelCollapsed"
-              :active-tab="sidePanelActiveTab"
-              :todo-sessions="todoPanelSessions"
-              :tree-nodes="treeNodes"
-              :expanded-tree-paths="expandedTreePaths"
-              :selected-tree-path="selectedTreePath"
-              :tree-loading="treeLoading"
-              :tree-error="treeError"
-              :tree-status-by-path="sessionStatusByPath"
-              @toggle-collapse="toggleSidePanelCollapsed"
-              @change-tab="setSidePanelTab"
-              @toggle-dir="toggleTreeDirectory"
-              @select-file="selectTreeFile"
-              @open-diff="openSessionDiff"
-              @open-file="openFileViewer"
-            />
-          </div>
-          <div ref="toolWindowCanvasEl" class="tool-window-canvas">
-            <TransitionGroup appear name="fade">
-              <FloatingWindow
-                v-for="entry in fw.entries.value"
-                :key="entry.key"
-                :entry="entry"
-                :manager="fw"
-                @focus="fw.bringToFront(entry.key)"
-                @close="fw.close(entry.key)"
+    <template v-if="uiInitState === 'ready'">
+      <header class="app-header">
+        <TopPanel
+          :base-worktrees="baseWorktreeOptions"
+          :base-worktree="selectedProjectDirectory"
+          :active-directories="worktrees"
+          :active-directory="selectedWorktreeDir"
+          :active-directory-meta="worktreeMetaByDir"
+          :sessions="filteredSessions"
+          :session-status-by-id="sessionStatusByIdRecord"
+          :home-path="homePath"
+          v-model:base-worktree="selectedProjectDirectory"
+          v-model:active-directory="selectedWorktreeDir"
+          v-model:selected-session-id="selectedSessionId"
+          @open-directory="openProjectPicker"
+          @create-worktree="createWorktree"
+          @new-session="createNewSession"
+          @delete-active-directory="deleteWorktree"
+          @delete-session="deleteSession"
+        />
+      </header>
+      <main ref="outputEl" class="app-output">
+        <div class="output-workspace">
+          <div class="tool-window-layer" :class="{ 'todo-collapsed': sidePanelCollapsed }">
+            <div class="output-split" :class="{ 'todo-collapsed': sidePanelCollapsed }">
+              <OutputPanel
+                ref="outputPanelRef"
+                class="output-panel"
+                :queue="queue"
+                :is-following="isFollowing"
+                :status-text="statusText"
+                :is-status-error="isStatusError"
+                :is-thinking="isThinking"
+                :is-retry-status="!!retryStatus"
+                :busy-descendant-count="busyDescendantSessionIds.length"
+                :theme="shikiTheme"
+                :resolve-agent-color="resolveAgentColorForName"
+                :message-diffs="messageDiffsByKey"
+                @scroll="handleOutputPanelScroll"
+                @wheel="handleOutputPanelWheel"
+                @touchmove="handleOutputPanelScroll"
+                @resume-follow="resumeFollow"
+                @fork-message="handleForkMessage"
+                @revert-message="handleRevertMessage"
+                @show-message-diff="handleShowMessageDiff"
+                @show-message-history="handleShowMessageHistory"
               />
-            </TransitionGroup>
+              <SidePanel
+                class="todo-panel"
+                :collapsed="sidePanelCollapsed"
+                :active-tab="sidePanelActiveTab"
+                :todo-sessions="todoPanelSessions"
+                :tree-nodes="treeNodes"
+                :expanded-tree-paths="expandedTreePaths"
+                :selected-tree-path="selectedTreePath"
+                :tree-loading="treeLoading"
+                :tree-error="treeError"
+                :tree-status-by-path="sessionStatusByPath"
+                @toggle-collapse="toggleSidePanelCollapsed"
+                @change-tab="setSidePanelTab"
+                @toggle-dir="toggleTreeDirectory"
+                @select-file="selectTreeFile"
+                @open-diff="openSessionDiff"
+                @open-file="openFileViewer"
+              />
+            </div>
+            <div ref="toolWindowCanvasEl" class="tool-window-canvas">
+              <TransitionGroup appear name="fade">
+                <FloatingWindow
+                  v-for="entry in fw.entries.value"
+                  :key="entry.key"
+                  :entry="entry"
+                  :manager="fw"
+                  @focus="fw.bringToFront(entry.key)"
+                  @close="fw.close(entry.key)"
+                />
+              </TransitionGroup>
+            </div>
           </div>
         </div>
+      </main>
+      <footer
+        ref="inputEl"
+        class="app-input"
+        :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
+      >
+        <div class="input-resizer" @pointerdown="startInputResize"></div>
+        <InputPanel
+          :can-send="canSend"
+          :agent-options="agentOptions"
+          :has-agent-options="hasAgentOptions"
+          :agent-color="currentAgentColor"
+          :model-options="modelOptions"
+          :thinking-options="thinkingOptions"
+          :has-model-options="hasModelOptions"
+          :has-thinking-options="hasThinkingOptions"
+          :can-attach="canAttach"
+          :is-thinking="isThinking"
+          :can-abort="canAbort"
+          :commands="commandOptions"
+          :attachments="attachments"
+          :message-input="messageInput"
+          :selected-mode="selectedMode"
+          :selected-model="selectedModel"
+          :selected-thinking="selectedThinking"
+          @update:message-input="handleMessageInputUpdate"
+          @update:selected-mode="handleSelectedModeUpdate"
+          @update:selected-model="handleSelectedModelUpdate"
+          @update:selected-thinking="handleSelectedThinkingUpdate"
+          @send="sendMessage"
+          @abort="abortSession"
+          @add-attachments="handleAddAttachments"
+          @remove-attachment="removeAttachment"
+        />
+      </footer>
+    </template>
+    <div v-else class="app-loading-view" role="status" aria-live="polite">
+      <div class="app-loading-card">
+        <div class="app-loading-spinner" aria-hidden="true"></div>
+        <p class="app-loading-title">Loading OpenCode session data...</p>
+        <p class="app-loading-message">{{ uiInitState === 'error' ? initErrorMessage : initLoadingMessage }}</p>
+        <button
+          v-if="uiInitState === 'error'"
+          type="button"
+          class="app-loading-retry"
+          @click="startInitialization"
+        >
+          Retry
+        </button>
       </div>
-    </main>
-    <footer
-      ref="inputEl"
-      class="app-input"
-      :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
-    >
-      <div class="input-resizer" @pointerdown="startInputResize"></div>
-      <InputPanel
-        :can-send="canSend"
-        :agent-options="agentOptions"
-        :has-agent-options="hasAgentOptions"
-        :agent-color="currentAgentColor"
-        :model-options="modelOptions"
-        :thinking-options="thinkingOptions"
-        :has-model-options="hasModelOptions"
-        :has-thinking-options="hasThinkingOptions"
-        :can-attach="canAttach"
-        :is-thinking="isThinking"
-        :can-abort="canAbort"
-        :commands="commandOptions"
-        :attachments="attachments"
-        :message-input="messageInput"
-        :selected-mode="selectedMode"
-        :selected-model="selectedModel"
-        :selected-thinking="selectedThinking"
-        @update:message-input="handleMessageInputUpdate"
-        @update:selected-mode="handleSelectedModeUpdate"
-        @update:selected-model="handleSelectedModelUpdate"
-        @update:selected-thinking="handleSelectedThinkingUpdate"
-        @send="sendMessage"
-        @abort="abortSession"
-        @add-attachments="handleAddAttachments"
-        @remove-attachment="removeAttachment"
-      />
-    </footer>
+    </div>
     <ProjectPicker
       :open="isProjectPickerOpen"
       :base-url="OPENCODE_BASE_URL"
@@ -166,6 +183,7 @@ import { useFloatingWindows } from './composables/useFloatingWindows';
 import { renderWorkerHtml } from './utils/workerRenderer';
 import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
+import { createSessionGraphStore } from './utils/sessionGraph';
 
 const OPENCODE_BASE_URL = 'http://localhost:4096';
 const FOLLOW_THRESHOLD_PX = 24;
@@ -175,6 +193,8 @@ const TOOL_COMPLETE_TTL_MS = 2_000;
 const TOOL_SCROLL_SPEED_PX_S = 2000;
 const TOOL_SCROLL_HOLD_MS = 250;
 const SUBAGENT_ACTIVE_TTL_MS = 60 * 60 * 1000;
+const CHILD_SESSION_PRUNE_TTL_MS = 20 * 60 * 1000;
+const ROOT_SESSION_BOOTSTRAP_LIMIT = 100_000;
 const SIDE_PANEL_COLLAPSED_STORAGE_KEY = 'opencode.sidePanelCollapsed.v1';
 const SIDE_PANEL_TAB_STORAGE_KEY = 'opencode.sidePanelTab.v1';
 const SHELL_WINDOW_Z_BASE = 1_000_000;
@@ -620,6 +640,10 @@ const worktreeMetaRequestIdByDir = new Map<string, number>();
 let worktreeMetaRequestId = 0;
 const sessions = ref<SessionInfo[]>([]);
 const sessionParentById = shallowRef(new Map<string, string | undefined>());
+const sessionGraphStore = createSessionGraphStore();
+const sessionGraphVersion = ref(0);
+const bootstrapReady = ref(false);
+const pendingChildFetchKeys = new Set<string>();
 const providers = ref<ProviderInfo[]>([]);
 const agents = ref<AgentInfo[]>([]);
 const commands = ref<CommandInfo[]>([]);
@@ -651,8 +675,6 @@ const selectedProjectDirectory = ref('');
 const homePath = ref('');
 const serverWorktreePath = ref('');
 const initialQuery = readQuerySelection();
-if (initialQuery.projectId) selectedProjectId.value = initialQuery.projectId;
-if (initialQuery.sessionId) selectedSessionId.value = initialQuery.sessionId;
 const isProjectPickerOpen = ref(false);
 const selectedMode = ref('build');
 const selectedModel = ref('');
@@ -666,6 +688,16 @@ const sendStatus = ref('Ready');
 const isSending = ref(false);
 const isAborting = ref(false);
 const isBootstrapping = ref(false);
+const uiInitState = ref<'loading' | 'ready' | 'error'>('loading');
+const initLoadingMessage = ref('Connecting to server...');
+const initErrorMessage = ref('Failed to load initial data. Reload to retry.');
+const connectionState = ref<'connecting' | 'bootstrapping' | 'ready' | 'reconnecting' | 'error'>(
+  'connecting',
+);
+const reconnectingMessage = ref('');
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectInFlight = false;
+let initializationInFlight = false;
 const retryStatus = ref<{
   message: string;
   next: number;
@@ -673,6 +705,9 @@ const retryStatus = ref<{
 } | null>(null);
 
 const statusText = computed(() => {
+  if (connectionState.value === 'reconnecting') {
+    return reconnectingMessage.value || 'Reconnecting...';
+  }
   if (retryStatus.value) {
     const timeStr = formatRetryTime(retryStatus.value.next);
     return `${retryStatus.value.message} | Next: ${timeStr}`;
@@ -762,6 +797,8 @@ const expandedTreePaths = computed(() => Array.from(expandedTreePathSet.value));
 
 const canSend = computed(() =>
   Boolean(
+    uiInitState.value === 'ready' &&
+      connectionState.value === 'ready' &&
     selectedSessionId.value &&
     !isSending.value &&
     (messageInput.value.trim().length > 0 || attachments.value.length > 0),
@@ -797,7 +834,13 @@ const isThinking = computed(() => {
   );
 });
 const canAbort = computed(() =>
-  Boolean(selectedSessionId.value && isThinking.value && !isAborting.value),
+  Boolean(
+    uiInitState.value === 'ready' &&
+      connectionState.value === 'ready' &&
+      selectedSessionId.value &&
+      isThinking.value &&
+      !isAborting.value,
+  ),
 );
 const hasAgentOptions = computed(() => agentOptions.value.length > 0);
 const hasModelOptions = computed(() => modelOptions.value.length > 0);
@@ -882,6 +925,18 @@ function requireSelectedWorktree(context: 'send') {
   const message = 'No worktree selected.';
   sendStatus.value = message;
   return '';
+}
+
+function ensureConnectionReady(action: string) {
+  if (connectionState.value === 'ready' && uiInitState.value === 'ready') return true;
+  if (connectionState.value === 'reconnecting') {
+    sendStatus.value = `Reconnecting... ${action} is temporarily disabled.`;
+  } else if (uiInitState.value === 'loading') {
+    sendStatus.value = `Still loading. ${action} is temporarily disabled.`;
+  } else {
+    sendStatus.value = `Not connected. ${action} is unavailable.`;
+  }
+  return false;
 }
 
 function sessionSortKey(session: SessionInfo) {
@@ -1133,6 +1188,11 @@ function setSidePanelTab(value: 'todo' | 'tree') {
 function resolveProjectIdForSession(sessionId: string) {
   const matched = sessions.value.find((session) => session.id === sessionId);
   if (matched?.projectID) return matched.projectID;
+  const fromGraph = sessionGraphStore.getProjectIDForSession(
+    sessionId,
+    selectedProjectId.value || undefined,
+  );
+  if (fromGraph) return fromGraph;
   if (selectedSessionId.value === sessionId) return selectedProjectId.value;
   return '';
 }
@@ -1398,6 +1458,7 @@ const sessionStatusByIdRecord = computed<Record<string, SessionStatusType>>(() =
 
 function setSessionStatus(sessionId: string, status: SessionStatusType, projectId?: string) {
   if (!sessionId) return;
+  sessionGraphStore.setStatus(sessionId, status, projectId);
   const key = buildSessionStatusKeyForSession(sessionId, projectId);
   if (!key) return;
   if (sessionStatusByKey.get(key) === status) return;
@@ -1429,6 +1490,7 @@ function deleteSessionStatus(sessionId: string, projectId?: string) {
  */
 function syncSessionStatuses(entries: [string, SessionStatusType][], projectId?: string) {
   if (!projectId) return;
+  sessionGraphStore.syncStatusesForProject(projectId, entries);
   const apiBusyKeys = new Set<string>();
   let didUpdate = false;
 
@@ -2191,50 +2253,66 @@ function scheduleToolScrollAnimation(toolKey: string) {
   });
 }
 
-function upsertSessionFromEvent(info: SessionInfo) {
-  const existingIndex = sessions.value.findIndex((session) => session.id === info.id);
-  if (existingIndex >= 0) {
-    sessions.value.splice(existingIndex, 1, { ...sessions.value[existingIndex], ...info });
-  } else {
-    sessions.value.push(info);
-  }
+function syncVisibleSessionsFromGraph() {
+  const directory = activeDirectory.value.trim();
+  const projectID = selectedProjectId.value || sessionGraphStore.resolveProjectIDForDirectory(directory);
+  if (projectID && selectedProjectId.value !== projectID) selectedProjectId.value = projectID;
+  sessions.value = sessionGraphStore.getRootSessions({
+    projectID: projectID || undefined,
+    directory: directory || undefined,
+  }) as SessionInfo[];
+  sessionParentById.value = sessionGraphStore.getParentMap(projectID || undefined);
+  sessionGraphVersion.value = sessionGraphStore.getVersion();
 }
 
-function buildSessionParentMap(list: SessionInfo[]) {
-  const map = new Map<string, string | undefined>();
-  list.forEach((session) => {
-    map.set(session.id, session.parentID);
+function registerProjectDirectories() {
+  projects.value.forEach((project) => {
+    const directories = projectSessionDirectories(project);
+    sessionGraphStore.rememberProjectDirectories(project.id, directories);
   });
-  return map;
+}
+
+function resolveProjectIdForDirectorySelection(directory?: string) {
+  const normalized = directory?.trim() || '';
+  if (!normalized) return '';
+  const fromGraph = sessionGraphStore.resolveProjectIDForDirectory(normalized);
+  if (fromGraph) return fromGraph;
+  const matched = projects.value.find((project) => {
+    const candidates = projectSessionDirectories(project);
+    return candidates.some((entry) => normalizeDirectory(entry) === normalizeDirectory(normalized));
+  });
+  return matched?.id ?? '';
 }
 
 function setSessions(list: SessionInfo[]) {
   const next = Array.isArray(list) ? list : [];
-  sessions.value = next;
-  const merged = buildSessionParentMap(next);
-  sessionParentById.value.forEach((parentId, sessionId) => {
-    if (!parentId) return;
-    if (merged.has(sessionId)) return;
-    merged.set(sessionId, parentId);
+  const projectID =
+    selectedProjectId.value || resolveProjectIdForDirectorySelection(activeDirectory.value || undefined);
+  sessionGraphStore.upsertSessions(next, {
+    projectIDHint: projectID || undefined,
+    directoryHint: activeDirectory.value || undefined,
+    retention: 'persistent',
   });
-  sessionParentById.value = merged;
+  syncVisibleSessionsFromGraph();
 }
 
 function clearSessions() {
   sessions.value = [];
-  sessionParentById.value = new Map();
+  sessionParentById.value = sessionGraphStore.getParentMap(selectedProjectId.value || undefined);
 }
 
 function upsertSessionGraph(info: SessionInfo) {
-  const next = new Map(sessionParentById.value);
-  next.set(info.id, info.parentID);
-  sessionParentById.value = next;
+  sessionGraphStore.upsertSession(info, {
+    projectIDHint: selectedProjectId.value || undefined,
+    directoryHint: activeDirectory.value || undefined,
+    retention: info.parentID ? 'ephemeral' : 'persistent',
+  });
+  syncVisibleSessionsFromGraph();
 }
 
 function removeSessionFromGraph(sessionId: string) {
-  const next = new Map(sessionParentById.value);
-  next.delete(sessionId);
-  sessionParentById.value = next;
+  sessionGraphStore.removeSession(sessionId, selectedProjectId.value || undefined);
+  syncVisibleSessionsFromGraph();
 }
 
 /**
@@ -2246,31 +2324,39 @@ function removeSessionFromGraph(sessionId: string) {
  * only returns sessions whose directory matches, so sub-agent
  * sessions with a different—or missing—directory are omitted).
  */
-async function fetchSessionChildren(rootSessionId: string, directory?: string) {
+async function fetchSessionChildren(rootSessionId: string, directory?: string, projectID?: string) {
+  const instanceDirectory = (directory || activeDirectory.value || '').trim();
+  const fetchKey = `${instanceDirectory}:${rootSessionId}`;
+  if (pendingChildFetchKeys.has(fetchKey)) return;
+  pendingChildFetchKeys.add(fetchKey);
   try {
     const data = (await opencodeApi.getSessionChildren(
       OPENCODE_BASE_URL,
       rootSessionId,
-      directory,
+      undefined,
+      { instanceDirectory: instanceDirectory || undefined },
     )) as SessionInfo[];
     if (!Array.isArray(data) || data.length === 0) return;
-    const next = new Map(sessionParentById.value);
-    let changed = false;
+    const resolvedProjectID =
+      projectID ||
+      resolveProjectIdForSession(rootSessionId) ||
+      resolveProjectIdForDirectorySelection(instanceDirectory || undefined);
     for (const child of data) {
       if (!child || typeof child.id !== 'string') continue;
       const parentId = typeof child.parentID === 'string' ? child.parentID : rootSessionId;
-      if (!next.has(child.id) || next.get(child.id) !== parentId) {
-        next.set(child.id, parentId);
-        changed = true;
-      }
+      sessionGraphStore.upsertSession({ ...child, parentID: parentId }, {
+        projectIDHint: resolvedProjectID || undefined,
+        directoryHint: instanceDirectory || undefined,
+        retention: 'ephemeral',
+      });
     }
-    if (changed) {
-      sessionParentById.value = next;
-    }
+    syncVisibleSessionsFromGraph();
   } catch (error) {
     // Non-critical: child list unavailable. SSE events will
     // register children as they arrive.
     log('fetchSessionChildren failed', error);
+  } finally {
+    pendingChildFetchKeys.delete(fetchKey);
   }
 }
 
@@ -2296,6 +2382,7 @@ async function fetchProjects(directory?: string) {
   try {
     const data = (await opencodeApi.listProjects(OPENCODE_BASE_URL, directory)) as ProjectInfo[];
     projects.value = Array.isArray(data) ? data : [];
+    registerProjectDirectories();
   } catch (error) {
     projectError.value = `Project load failed: ${toErrorMessage(error)}`;
   }
@@ -2308,6 +2395,8 @@ function upsertProject(next: ProjectInfo) {
   } else {
     projects.value.unshift(next);
   }
+  const directories = projectSessionDirectories(next);
+  sessionGraphStore.rememberProjectDirectories(next.id, directories);
 }
 
 async function fetchCurrentProject(directory?: string) {
@@ -2344,17 +2433,19 @@ function projectSessionDirectories(project?: ProjectInfo) {
 async function fetchSessions(
   options: {
     directory?: string;
+    instanceDirectory?: string;
     roots?: boolean;
     search?: string;
     limit?: number;
   } = {},
 ) {
   const list = await listSessionsByDirectory(options);
-  if (
-    options.directory &&
-    selectedWorktreeDir.value &&
-    options.directory !== selectedWorktreeDir.value
-  ) {
+  if (options.instanceDirectory && selectedWorktreeDir.value) {
+    if (normalizeDirectory(options.instanceDirectory) !== normalizeDirectory(selectedWorktreeDir.value)) {
+      return;
+    }
+  }
+  if (options.directory && selectedWorktreeDir.value && options.directory !== selectedWorktreeDir.value) {
     return;
   }
   setSessions(list);
@@ -2363,6 +2454,7 @@ async function fetchSessions(
 async function listSessionsByDirectory(
   options: {
     directory?: string;
+    instanceDirectory?: string;
     roots?: boolean;
     search?: string;
     limit?: number;
@@ -2384,7 +2476,7 @@ function refreshSessionsForDirectory(directory?: string) {
     clearSessions();
     return Promise.resolve();
   }
-  return fetchSessions({ directory, roots: true });
+  return fetchSessions({ instanceDirectory: directory, roots: true, limit: ROOT_SESSION_BOOTSTRAP_LIMIT });
 }
 
 async function fetchWorktrees(directory?: string) {
@@ -2480,6 +2572,7 @@ async function handleWorktreeReady(event: { directory: string; branch?: string }
 }
 
 async function createWorktree() {
+  if (!ensureConnectionReady('Creating worktree')) return;
   worktreeError.value = '';
   if (!selectedProjectDirectory.value) {
     worktreeError.value = 'Worktree base directory not set.';
@@ -2503,6 +2596,7 @@ async function createWorktree() {
 }
 
 async function deleteWorktree(directory: string) {
+  if (!ensureConnectionReady('Deleting worktree')) return;
   worktreeError.value = '';
   if (!directory) return;
   if (!selectedProjectDirectory.value) {
@@ -2526,6 +2620,7 @@ function openProjectPicker() {
 }
 
 async function createNewSession() {
+  if (!ensureConnectionReady('Creating session')) return;
   sessionError.value = '';
   try {
     const data = (await opencodeApi.createSession(
@@ -2553,6 +2648,7 @@ async function createNewSession() {
 }
 
 async function deleteSession(sessionId: string) {
+  if (!ensureConnectionReady('Deleting session')) return;
   sessionError.value = '';
   if (!sessionId) return;
   try {
@@ -2569,6 +2665,7 @@ async function deleteSession(sessionId: string) {
 }
 
 async function handleForkMessage(payload: { sessionId: string; messageId: string }) {
+  if (!ensureConnectionReady('Fork')) return;
   sessionError.value = '';
   try {
     sendStatus.value = 'Forking...';
@@ -2595,6 +2692,7 @@ async function handleForkMessage(payload: { sessionId: string; messageId: string
 }
 
 async function handleRevertMessage(payload: { sessionId: string; messageId: string }) {
+  if (!ensureConnectionReady('Revert')) return;
   sessionError.value = '';
   try {
     sendStatus.value = 'Reverting...';
@@ -2619,7 +2717,6 @@ async function handleProjectDirectorySelect(directory: string) {
   selectedWorktreeDir.value = directory;
   selectedSessionId.value = '';
   worktrees.value = [];
-  clearSessions();
   const current = await fetchCurrentProject(directory);
   await fetchProjects();
   if (current) {
@@ -2633,90 +2730,134 @@ async function handleProjectDirectorySelect(directory: string) {
   await refreshSessionsForDirectory(directory);
 }
 
+function collectProjectWorktreeDirectories() {
+  const directories = new Set<string>();
+  projects.value.forEach((project) => {
+    projectSessionDirectories(project).forEach((directory) => {
+      const normalized = directory.trim();
+      if (normalized) directories.add(normalized);
+    });
+  });
+  return Array.from(directories);
+}
+
+async function bootstrapSessionGraph(directories: string[]) {
+  const uniqueDirectories = Array.from(new Set(directories.map((dir) => dir.trim()).filter(Boolean)));
+  await Promise.all(
+    uniqueDirectories.map(async (directory) => {
+      const current = await fetchCurrentProject(directory);
+      if (current) {
+        upsertProject(current);
+        const scoped = projectSessionDirectories(current);
+        sessionGraphStore.rememberProjectDirectories(current.id, scoped);
+        sessionGraphStore.rememberProjectDirectory(current.id, directory);
+      }
+      const roots = await listSessionsByDirectory({
+        instanceDirectory: directory,
+        roots: true,
+        limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
+      });
+      const fallbackProjectId = current?.id || resolveProjectIdForDirectorySelection(directory);
+      sessionGraphStore.upsertSessions(roots, {
+        projectIDHint: fallbackProjectId || undefined,
+        directoryHint: directory,
+        retention: 'persistent',
+      });
+      const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+        instanceDirectory: directory,
+      })) as Record<string, { type?: string }>;
+      const statusEntries: [string, SessionStatusType][] = [];
+      Object.entries(statusMap ?? {}).forEach(([sessionId, status]) => {
+        const type = typeof status?.type === 'string' ? status.type : '';
+        if (type === 'busy' || type === 'idle' || type === 'retry') {
+          statusEntries.push([sessionId, type]);
+        }
+      });
+      const resolvedProjectId =
+        fallbackProjectId ||
+        roots.find((session) => typeof session.projectID === 'string' && session.projectID)?.projectID ||
+        '';
+      if (resolvedProjectId) {
+        syncSessionStatuses(statusEntries, resolvedProjectId);
+      }
+    }),
+  );
+  syncVisibleSessionsFromGraph();
+}
+
+function finalizeSelectionAfterBootstrap() {
+  const initialProjectId = initialQuery.projectId.trim();
+  const initialSessionId = initialQuery.sessionId.trim();
+  if (initialProjectId && initialSessionId) {
+    const initialSession = sessionGraphStore.getSession(initialSessionId, initialProjectId);
+    if (initialSession) {
+      const targetDirectory = initialSession.directory?.trim();
+      if (targetDirectory) {
+        selectedProjectDirectory.value = targetDirectory;
+        selectedWorktreeDir.value = targetDirectory;
+      }
+      selectedProjectId.value = initialProjectId;
+      selectedSessionId.value = initialSessionId;
+      syncVisibleSessionsFromGraph();
+      return;
+    }
+  }
+
+  const defaultDirectory =
+    selectedWorktreeDir.value || selectedProjectDirectory.value || collectProjectWorktreeDirectories()[0] || '';
+  if (defaultDirectory) {
+    selectedProjectDirectory.value = defaultDirectory;
+    selectedWorktreeDir.value = defaultDirectory;
+    const projectID = resolveProjectIdForDirectorySelection(defaultDirectory);
+    if (projectID) selectedProjectId.value = projectID;
+  }
+
+  syncVisibleSessionsFromGraph();
+  const preferredId = pickPreferredSessionId(filteredSessions.value);
+  if (!selectedSessionId.value && preferredId) selectedSessionId.value = preferredId;
+}
+
+async function reconcileSessionGraphFromScopes() {
+  const directories = collectProjectWorktreeDirectories();
+  await Promise.all(
+    directories.map(async (directory) => {
+      const statusMap = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+        instanceDirectory: directory,
+      })) as Record<string, { type?: string }>;
+      const statusEntries: [string, SessionStatusType][] = [];
+      Object.entries(statusMap ?? {}).forEach(([sessionId, status]) => {
+        const type = typeof status?.type === 'string' ? status.type : '';
+        if (type === 'busy' || type === 'idle' || type === 'retry') {
+          statusEntries.push([sessionId, type]);
+        }
+      });
+      const projectID = resolveProjectIdForDirectorySelection(directory);
+      if (!projectID) return;
+      syncSessionStatuses(statusEntries, projectID);
+    }),
+  );
+  pruneIdleEphemeralSessions();
+  syncVisibleSessionsFromGraph();
+  void fetchChildrenForActiveSessions();
+}
+
 async function bootstrapSelections() {
   if (isBootstrapping.value) return;
   isBootstrapping.value = true;
+  bootstrapReady.value = false;
   try {
     await fetchProjects();
-    const hasProject = Boolean(selectedProjectId.value);
-    const hasSession = Boolean(selectedSessionId.value);
-    if (hasProject !== hasSession) {
-      selectedProjectId.value = '';
-      selectedSessionId.value = '';
-      replaceQuerySelection('', '');
+    const allDirectories = collectProjectWorktreeDirectories();
+    await bootstrapSessionGraph(allDirectories);
+    finalizeSelectionAfterBootstrap();
+    if (selectedProjectDirectory.value) {
+      await fetchWorktrees(selectedProjectDirectory.value);
     }
-
-    if (selectedProjectId.value && selectedSessionId.value) {
-      const selectedProject = projects.value.find(
-        (project) => project.id === selectedProjectId.value,
-      );
-      if (!selectedProject) {
-        selectedProjectId.value = '';
-        selectedSessionId.value = '';
-        replaceQuerySelection('', '');
-        return;
-      }
-      const candidates = projectSessionDirectories(selectedProject)
-        .map((directory) => directory.trim())
-        .filter((directory) => directory.length > 0);
-      const uniqueDirectories = Array.from(new Set(candidates));
-      const checks = await Promise.all(
-        uniqueDirectories.map(async (directory) => {
-          const list = await listSessionsByDirectory({ directory });
-          const found = list.find(
-            (session) =>
-              session.id === selectedSessionId.value &&
-              session.projectID === selectedProjectId.value,
-          );
-          if (!found) return null;
-          return { directory };
-        }),
-      );
-      const matched = checks.find((entry) => Boolean(entry));
-      if (matched) {
-        const targetSessionId = selectedSessionId.value;
-        selectedProjectDirectory.value = selectedProject.worktree?.trim() || matched.directory;
-        selectedWorktreeDir.value = matched.directory;
-        await fetchCommands(selectedWorktreeDir.value);
-        await fetchWorktrees(selectedProjectDirectory.value);
-        await refreshSessionsForDirectory(selectedWorktreeDir.value);
-        if (targetSessionId) {
-          retryStatus.value = null;
-          await fetchHistory(targetSessionId);
-          await restoreShellSessions(targetSessionId);
-          await fetchSessionStatus(selectedWorktreeDir.value || undefined);
-        }
-      } else {
-        selectedProjectId.value = '';
-        selectedSessionId.value = '';
-        replaceQuerySelection('', '');
-      }
-      return;
+    if (selectedWorktreeDir.value) {
+      await fetchCommands(selectedWorktreeDir.value);
+      await refreshSessionsForDirectory(selectedWorktreeDir.value);
     }
-
-    const current = await fetchCurrentProject();
-    if (current?.worktree) {
-      selectedProjectDirectory.value = current.worktree;
-      selectedWorktreeDir.value = current.worktree;
-      selectedProjectId.value = current.id;
-      await fetchWorktrees(current.worktree);
-      await fetchCommands(current.worktree);
-      await refreshSessionsForDirectory(current.worktree);
-      return;
-    }
-
-    const fallback = baseWorktreeOptions.value[0] ?? '';
-    if (fallback) {
-      selectedProjectDirectory.value = fallback;
-      selectedWorktreeDir.value = fallback;
-      const matched = projects.value.find((project) => project.worktree === fallback);
-      if (matched?.id) selectedProjectId.value = matched.id;
-      await fetchWorktrees(fallback);
-      await fetchCommands(fallback);
-      await refreshSessionsForDirectory(fallback);
-    } else {
-      clearSessions();
-    }
+    bootstrapReady.value = true;
   } finally {
     isBootstrapping.value = false;
     if (activeDirectory.value) {
@@ -2871,10 +3012,9 @@ async function fetchSessionStatus(directory?: string) {
   const requestId = ++sessionStatusRequestId;
   const directoryAtRequest = directory ?? '';
   try {
-    const data = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, directory)) as Record<
-      string,
-      { type?: string }
-    >;
+    const data = (await opencodeApi.getSessionStatusMap(OPENCODE_BASE_URL, undefined, {
+      instanceDirectory: directoryAtRequest || undefined,
+    })) as Record<string, { type?: string }>;
     if (requestId !== sessionStatusRequestId) return;
     if (directoryAtRequest !== (activeDirectory.value || '')) return;
     const nextEntries: [string, SessionStatusType][] = [];
@@ -2886,7 +3026,11 @@ async function fetchSessionStatus(directory?: string) {
         nextEntries.push([sessionId, 'retry']);
       }
     });
-    syncSessionStatuses(nextEntries, selectedProjectId.value);
+    const resolvedProjectId =
+      selectedProjectId.value || resolveProjectIdForDirectorySelection(directoryAtRequest || undefined);
+    if (resolvedProjectId) {
+      syncSessionStatuses(nextEntries, resolvedProjectId);
+    }
     if (selectedSessionId.value) {
       const nextStatus = getSessionStatus(selectedSessionId.value);
       if (nextStatus !== 'retry') {
@@ -5306,6 +5450,7 @@ function runDebugTool(tool: string) {
 }
 
 async function sendCommand(sessionId: string, command: CommandInfo, commandArgs: string) {
+  if (!ensureConnectionReady('Sending commands')) return;
   const directory = activeDirectory.value.trim();
   await opencodeApi.sendCommand(OPENCODE_BASE_URL, sessionId, {
     directory: directory || undefined,
@@ -5318,6 +5463,7 @@ async function sendCommand(sessionId: string, command: CommandInfo, commandArgs:
 }
 
 async function sendMessage() {
+  if (!ensureConnectionReady('Sending')) return;
   if (!canSend.value) return;
   const text = messageInput.value.trim();
   const hasText = text.length > 0;
@@ -5404,6 +5550,7 @@ async function sendMessage() {
 }
 
 async function abortSession() {
+  if (!ensureConnectionReady('Stopping')) return;
   const sessionId = selectedSessionId.value;
   if (!sessionId || isAborting.value) return;
   isAborting.value = true;
@@ -5485,9 +5632,20 @@ watch(
     if (isBootstrapping.value) return;
     selectedWorktreeDir.value = '';
     selectedSessionId.value = '';
-    selectedProjectId.value = '';
     worktrees.value = [];
-    clearSessions();
+    const resolvedProjectId = resolveProjectIdForDirectorySelection(directory || undefined);
+    selectedProjectId.value = resolvedProjectId || '';
+    if (!selectedProjectId.value && directory) {
+      void fetchCurrentProject(directory).then((project) => {
+        if (!project?.id) return;
+        upsertProject(project);
+        if (selectedProjectDirectory.value === directory) {
+          selectedProjectId.value = project.id;
+          syncVisibleSessionsFromGraph();
+        }
+      });
+    }
+    syncVisibleSessionsFromGraph();
     void fetchWorktrees(directory || undefined);
   },
   { immediate: true },
@@ -5511,8 +5669,19 @@ watch(
     if (typeof previous === 'undefined') return;
     if (isBootstrapping.value) return;
     selectedSessionId.value = '';
-    selectedProjectId.value = '';
-    clearSessions();
+    const resolvedProjectId = resolveProjectIdForDirectorySelection(value || undefined);
+    selectedProjectId.value = resolvedProjectId || '';
+    if (!selectedProjectId.value && value) {
+      void fetchCurrentProject(value).then((project) => {
+        if (!project?.id) return;
+        upsertProject(project);
+        if (selectedWorktreeDir.value === value) {
+          selectedProjectId.value = project.id;
+          syncVisibleSessionsFromGraph();
+        }
+      });
+    }
+    syncVisibleSessionsFromGraph();
     if (!value) return;
     void fetchCommands(value);
     void refreshSessionsForDirectory(value);
@@ -5522,8 +5691,18 @@ watch(
 );
 
 watch(
+  selectedProjectId,
+  () => {
+    if (isBootstrapping.value) return;
+    syncVisibleSessionsFromGraph();
+  },
+  { immediate: true },
+);
+
+watch(
   filteredSessions,
   () => {
+    if (!bootstrapReady.value && !isBootstrapping.value) return;
     if (isBootstrapping.value) return;
     if (filteredSessions.value.length === 0) return;
     const preferredId = pickPreferredSessionId(filteredSessions.value);
@@ -5541,7 +5720,10 @@ watch(
   { immediate: true },
 );
 
-function reloadSelectedSessionState() {
+async function reloadSelectedSessionState() {
+  if (selectedSessionId.value && isBootstrapping.value && !activeDirectory.value) {
+    return;
+  }
   const selected = sessions.value.find((session) => session.id === selectedSessionId.value);
   if (selected?.projectID) selectedProjectId.value = selected.projectID;
   disposeShellWindows({ preserve: true });
@@ -5563,8 +5745,8 @@ function reloadSelectedSessionState() {
   todoLoadingBySessionId.value = {};
   todoErrorBySessionId.value = {};
   if (selectedSessionId.value) {
-    void fetchHistory(selectedSessionId.value);
-    void restoreShellSessions(selectedSessionId.value);
+    await fetchHistory(selectedSessionId.value);
+    await restoreShellSessions(selectedSessionId.value);
     void reloadTodosForAllowedSessions();
     void refreshSessionDiff();
     void loadTreePath('.');
@@ -5574,8 +5756,25 @@ function reloadSelectedSessionState() {
     // Fetch child sessions so allowedSessionIds includes them.
     // When sessionParentById updates, the watch on allowedSessionIds
     // will automatically re-trigger reloadTodosForAllowedSessions.
-    void fetchSessionChildren(selectedSessionId.value, directory);
+    void fetchSessionChildren(selectedSessionId.value, directory, selectedProjectId.value || undefined);
   }
+}
+
+async function fetchChildrenForActiveSessions() {
+  const activeSessions = sessionGraphStore.listActiveSessions();
+  await Promise.all(
+    activeSessions.map(async (session) => {
+      const directory = session.directory?.trim();
+      if (!directory) return;
+      await fetchSessionChildren(session.id, directory, session.projectID);
+    }),
+  );
+}
+
+function pruneIdleEphemeralSessions() {
+  const keep = new Set<string>(allowedSessionIds.value);
+  const changed = sessionGraphStore.pruneEphemeralChildren(CHILD_SESSION_PRUNE_TTL_MS, keep);
+  if (changed) syncVisibleSessionsFromGraph();
 }
 
 watch(selectedSessionId, reloadSelectedSessionState, { immediate: true });
@@ -5746,6 +5945,11 @@ setInterval(() => {
   });
   syncFloatingMessages();
 }, 100);
+
+setInterval(() => {
+  pruneIdleEphemeralSessions();
+  void fetchChildrenForActiveSessions();
+}, 15_000);
 
 watch(
   () => queue.value.filter((entry) => entry.isMessage && !entry.isSubagentMessage).length,
@@ -8266,26 +8470,40 @@ function applySessionStatusEvent(payload: unknown, eventType: string) {
   if (!sessionStatus) return;
 
   const sessionId = extractSessionId(payload);
-  if (!sessionId || !allowedSessionIds.value.has(sessionId)) return;
+  if (!sessionId) return;
 
-  const projectId = selectedProjectId.value;
+  const projectId =
+    resolveProjectIdForSession(sessionId) ||
+    selectedProjectId.value ||
+    resolveProjectIdForDirectorySelection(extractEventDirectory(payload) || undefined);
   if (!projectId) return;
+
+  const isAllowedSession = allowedSessionIds.value.has(sessionId);
 
   const isSelectedSession = sessionId === selectedSessionId.value;
 
   if (sessionStatus.status === 'busy' || sessionStatus.status === 'idle') {
-    const nextStatus = sessionStatus.status as SessionStatusType;
+    const nextStatus: 'busy' | 'idle' = sessionStatus.status;
     setSessionStatus(sessionId, nextStatus, projectId);
-    if (isSelectedSession) retryStatus.value = null;
-    updateSubagentExpiry(sessionId, nextStatus);
-    updateReasoningExpiry(sessionId, nextStatus);
+    if (isAllowedSession) {
+      if (isSelectedSession) retryStatus.value = null;
+      updateSubagentExpiry(sessionId, nextStatus);
+      updateReasoningExpiry(sessionId, nextStatus);
+    }
+    if (nextStatus === 'busy') {
+      const session = sessionGraphStore.getSession(sessionId, projectId);
+      void fetchSessionChildren(sessionId, session?.directory || activeDirectory.value || undefined, projectId);
+    }
+    pruneIdleEphemeralSessions();
     return;
   }
 
   if (sessionStatus.status !== 'retry') return;
 
   setSessionStatus(sessionId, 'retry', projectId);
-  if (!isSelectedSession) return;
+  const session = sessionGraphStore.getSession(sessionId, projectId);
+  void fetchSessionChildren(sessionId, session?.directory || activeDirectory.value || undefined, projectId);
+  if (!isSelectedSession || !isAllowedSession) return;
 
   updateReasoningExpiry(sessionId, 'busy');
   if (sessionStatus.message && typeof sessionStatus.next === 'number') {
@@ -8641,6 +8859,7 @@ function prunePermissionEntries() {
 }
 
 async function sendPermissionReply(requestId: string, reply: PermissionReply) {
+  if (!ensureConnectionReady('Permission reply')) return;
   const directory = activeDirectory.value.trim();
   await opencodeApi.replyPermission(OPENCODE_BASE_URL, requestId, {
     directory: directory || undefined,
@@ -8649,6 +8868,7 @@ async function sendPermissionReply(requestId: string, reply: PermissionReply) {
 }
 
 async function handlePermissionReply(payload: { requestId: string; reply: PermissionReply }) {
+  if (!ensureConnectionReady('Permission reply')) return;
   const { requestId, reply } = payload;
   if (isPermissionSubmitting(requestId)) return;
   clearPermissionError(requestId);
@@ -8767,6 +8987,7 @@ function normalizeQuestionAnswers(answers: QuestionAnswer[]) {
 }
 
 async function sendQuestionReply(requestId: string, answers: QuestionAnswer[]) {
+  if (!ensureConnectionReady('Question reply')) return;
   const directory = activeDirectory.value.trim();
   await opencodeApi.replyQuestion(OPENCODE_BASE_URL, requestId, {
     directory: directory || undefined,
@@ -8775,11 +8996,13 @@ async function sendQuestionReply(requestId: string, answers: QuestionAnswer[]) {
 }
 
 async function sendQuestionReject(requestId: string) {
+  if (!ensureConnectionReady('Question reject')) return;
   const directory = activeDirectory.value.trim();
   await opencodeApi.rejectQuestion(OPENCODE_BASE_URL, requestId, directory || undefined);
 }
 
 async function handleQuestionReply(payload: { requestId: string; answers: QuestionAnswer[] }) {
+  if (!ensureConnectionReady('Question reply')) return;
   const { requestId, answers } = payload;
   if (isQuestionSubmitting(requestId)) return;
   clearQuestionError(requestId);
@@ -8798,6 +9021,7 @@ async function handleQuestionReply(payload: { requestId: string; answers: Questi
 }
 
 async function handleQuestionReject(requestId: string) {
+  if (!ensureConnectionReady('Question reject')) return;
   if (isQuestionSubmitting(requestId)) return;
   clearQuestionError(requestId);
   setQuestionSending(requestId, true);
@@ -9154,14 +9378,55 @@ function extractEventDirectory(payload: unknown) {
 }
 
 const src = shallowRef<EventSource>();
-function connect() {
-  if (src.value) return;
+function waitForSseConnection(timeoutMs = 5000) {
+  return new Promise<void>((resolve, reject) => {
+    const current = src.value;
+    if (!current) {
+      reject(new Error('SSE connection is not initialized.'));
+      return;
+    }
+    if (current.readyState === EventSource.OPEN) {
+      resolve();
+      return;
+    }
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('SSE connection failed.'));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('SSE connection timed out.'));
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      current.removeEventListener('open', onOpen);
+      current.removeEventListener('error', onError);
+    };
+    current.addEventListener('open', onOpen, { once: true });
+    current.addEventListener('error', onError, { once: true });
+  });
+}
+
+async function connect(options: { failFast?: boolean; timeoutMs?: number } = {}) {
+  if (src.value) {
+    if (options.failFast) {
+      await waitForSseConnection(options.timeoutMs ?? 5000);
+    }
+    return;
+  }
 
   log('connecting...');
   src.value = new EventSource(`${OPENCODE_BASE_URL}/global/event`);
 
   src.value.addEventListener('open', (e) => {
     log('connected.');
+    if (bootstrapReady.value) {
+      void reconcileSessionGraphFromScopes();
+    }
   });
   const handleEvent = (e: MessageEvent) => {
     const payload = parsePayload(e.data);
@@ -9225,15 +9490,25 @@ function connect() {
     const sessionInfo = extractSessionInfo(payload, resolvedEventType);
     if (sessionInfo) {
       const isDelete = isSessionDeleteEvent(resolvedEventType);
+      const eventDirectory = extractEventDirectory(payload);
+      const resolvedProjectId =
+        sessionInfo.projectID ||
+        resolveProjectIdForSession(sessionInfo.id) ||
+        resolveProjectIdForDirectorySelection(eventDirectory || sessionInfo.directory || undefined);
       if (isDelete) {
-        removeSessionFromGraph(sessionInfo.id);
+        sessionGraphStore.removeSession(sessionInfo.id, resolvedProjectId || undefined);
         if (selectedSessionId.value === sessionInfo.id) selectedSessionId.value = '';
       } else {
-        upsertSessionGraph(sessionInfo);
+        sessionGraphStore.upsertSession(sessionInfo, {
+          projectIDHint: resolvedProjectId || undefined,
+          directoryHint: eventDirectory || sessionInfo.directory || undefined,
+          retention: sessionInfo.parentID ? 'ephemeral' : 'persistent',
+        });
         if (sessionInfo.parentID) {
           subagentSessionExpiry.set(sessionInfo.id, Date.now() + SUBAGENT_ACTIVE_TTL_MS);
         }
       }
+      syncVisibleSessionsFromGraph();
 
       if (matchesSelectedProject(sessionInfo)) {
         const matchesWorktree = matchesSelectedWorktree(sessionInfo);
@@ -9243,9 +9518,7 @@ function connect() {
             sessions.value = sessions.value.filter((session) => session.id !== sessionInfo.id);
           }
         } else {
-          if (matchesWorktree) {
-            upsertSessionFromEvent(sessionInfo);
-          }
+          if (matchesWorktree) syncVisibleSessionsFromGraph();
           if (
             sessionInfo.directory &&
             sessionInfo.projectID &&
@@ -9857,11 +10130,89 @@ function connect() {
   MESSAGE_EVENT_TYPES.forEach((eventType) => {
     src.value?.addEventListener(eventType, handleEvent);
   });
-  src.value.addEventListener('error', (e) => {
-    src.value!.close();
+  src.value.addEventListener('error', () => {
+    src.value?.close();
     src.value = undefined;
-    setTimeout(connect, 1000);
+    if (uiInitState.value === 'loading') {
+      connectionState.value = 'error';
+      initErrorMessage.value = 'Failed to connect to SSE stream.';
+      uiInitState.value = 'error';
+      return;
+    }
+    connectionState.value = 'reconnecting';
+    reconnectingMessage.value = 'Reconnecting...';
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void reconnectAndReconcile();
+    }, 1000);
   });
+
+  if (options.failFast) {
+    await waitForSseConnection(options.timeoutMs ?? 5000);
+  }
+}
+
+async function reconnectAndReconcile() {
+  if (reconnectInFlight) return;
+  reconnectInFlight = true;
+  try {
+    await connect({ failFast: true, timeoutMs: 5000 });
+    await reconcileSessionGraphFromScopes();
+    connectionState.value = 'ready';
+    reconnectingMessage.value = '';
+    sendStatus.value = 'Ready';
+  } catch (error) {
+    reconnectingMessage.value = `Reconnecting... ${toErrorMessage(error)}`;
+    if (!reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void reconnectAndReconcile();
+      }, 1000);
+    }
+  } finally {
+    reconnectInFlight = false;
+  }
+}
+
+async function startInitialization() {
+  if (initializationInFlight) return;
+  initializationInFlight = true;
+  uiInitState.value = 'loading';
+  initErrorMessage.value = '';
+  reconnectingMessage.value = '';
+  try {
+    connectionState.value = 'connecting';
+    initLoadingMessage.value = 'Connecting to SSE stream...';
+    await connect({ failFast: true, timeoutMs: 5000 });
+    connectionState.value = 'bootstrapping';
+    initLoadingMessage.value = 'Loading server path...';
+    await fetchHomePath();
+    initLoadingMessage.value = 'Loading projects and sessions...';
+    await bootstrapSelections();
+    if (selectedSessionId.value) {
+      initLoadingMessage.value = 'Loading session history...';
+      await reloadSelectedSessionState();
+    }
+    if (activeDirectory.value) {
+      initLoadingMessage.value = 'Loading worktree state...';
+      await fetchSessionStatus(activeDirectory.value || undefined);
+      await fetchCommands(activeDirectory.value || undefined);
+      const directory = activeDirectory.value || undefined;
+      await fetchPendingPermissions(directory);
+      await fetchPendingQuestions(directory);
+      void loadTreePath('.');
+      void refreshSessionDiff();
+    }
+    connectionState.value = 'ready';
+    uiInitState.value = 'ready';
+  } catch (error) {
+    connectionState.value = 'error';
+    initErrorMessage.value = toErrorMessage(error);
+    uiInitState.value = 'error';
+  } finally {
+    initializationInFlight = false;
+  }
 }
 
 onMounted(() => {
@@ -9872,20 +10223,8 @@ onMounted(() => {
     });
   }
   hydrateShellPtyStorage();
-  void fetchHomePath().then(() => bootstrapSelections());
   fetchProviders();
   fetchAgents();
-  if (activeDirectory.value) {
-    fetchSessionStatus(activeDirectory.value || undefined);
-  }
-  fetchCommands(activeDirectory.value || undefined);
-  if (activeDirectory.value) {
-    void loadTreePath('.');
-    void refreshSessionDiff();
-  }
-  const directory = activeDirectory.value || undefined;
-  fetchPendingPermissions(directory);
-  fetchPendingQuestions(directory);
   const availableThemes = getBundledThemeNames();
   const chosenTheme = pickShikiTheme(availableThemes);
   if (chosenTheme) shikiTheme.value = chosenTheme;
@@ -9897,12 +10236,13 @@ onMounted(() => {
   unregisterSessionStatusGlobalHook = registerGlobalEventHook((payload, eventType) => {
     const normalized = normalizeEventType(eventType);
     if (normalized === 'serverconnected') {
-      void fetchSessionStatus(activeDirectory.value || undefined);
+      if (bootstrapReady.value) void reconcileSessionGraphFromScopes();
+      else void fetchSessionStatus(activeDirectory.value || undefined);
       return;
     }
     applySessionStatusEvent(payload, eventType);
   });
-  connect();
+  void startInitialization();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', handlePointerMove);
@@ -9915,6 +10255,10 @@ onBeforeUnmount(() => {
   pendingToolScrollFrames.clear();
   unregisterSessionStatusGlobalHook?.();
   unregisterSessionStatusGlobalHook = null;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   src.value?.close();
   disposeShellWindows({ preserve: true });
 });
@@ -9932,6 +10276,67 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 12px 12px;
   box-sizing: border-box;
+}
+
+.app-loading-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.app-loading-card {
+  width: min(420px, 92vw);
+  border: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 14px 34px rgba(2, 6, 23, 0.5);
+  text-align: center;
+}
+
+.app-loading-spinner {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  border: 3px solid rgba(148, 163, 184, 0.4);
+  border-top-color: #e2e8f0;
+  animation: app-loading-spin 0.85s linear infinite;
+}
+
+.app-loading-title {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.app-loading-message {
+  margin: 8px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.app-loading-retry {
+  margin-top: 14px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.app-loading-retry:hover {
+  background: #334155;
+}
+
+@keyframes app-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .app-header {
