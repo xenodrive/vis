@@ -1258,11 +1258,12 @@ function applyComposerDraftToComposerState(draft: ComposerDraft, contextKey: str
   }
 }
 
-function restoreComposerDraftForContext(contextKey: string) {
-  if (!contextKey) return;
+function restoreComposerDraftForContext(contextKey: string): boolean {
+  if (!contextKey) return false;
   const draft = readComposerDraft(contextKey);
-  if (!draft) return;
+  if (!draft) return false;
   applyComposerDraftToComposerState(draft, contextKey);
+  return true;
 }
 
 function persistComposerDraftForCurrentContext() {
@@ -5863,7 +5864,8 @@ watch(
     if (contextKey === prevContextKey) return;
     clearComposerInputState();
     if (!contextKey) return;
-    restoreComposerDraftForContext(contextKey);
+    const hadDraft = restoreComposerDraftForContext(contextKey);
+    if (!hadDraft) resolveDefaultAgentModel();
   },
   { immediate: true },
 );
