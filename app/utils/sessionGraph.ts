@@ -365,6 +365,10 @@ export function createSessionGraphStore() {
     return changed;
   }
 
+  function getKnownSessionIDs(): Set<string> {
+    return new Set(keysBySessionID.keys());
+  }
+
   return {
     getVersion: () => version,
     rememberProjectDirectory,
@@ -383,5 +387,6 @@ export function createSessionGraphStore() {
     listActiveSessionKeys,
     listActiveSessions,
     pruneEphemeralChildren,
+    getKnownSessionIDs,
   };
 }

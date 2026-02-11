@@ -1295,6 +1295,37 @@ function clearComposerDraftForCurrentContext() {
   removeComposerDraft(contextKey);
 }
 
+function pruneOrphanedComposerDrafts() {
+  const store = readComposerDraftStore();
+  const knownSessionIDs = sessionGraphStore.getKnownSessionIDs();
+  const currentContextKey = draftKeyForSelectedContext();
+  const cleaned: Record<string, ComposerDraft> = {};
+
+  Object.entries(store).forEach(([key, draft]) => {
+    // Always keep the currently active session's draft
+    if (key === currentContextKey) {
+      cleaned[key] = draft;
+      return;
+    }
+
+    // Parse the key format: projectId:sessionId
+    const parts = key.split(':');
+    if (parts.length !== 2) {
+      // Invalid key format, skip it
+      return;
+    }
+
+    const sessionId = parts[1];
+    // Keep draft if session exists in the graph
+    if (knownSessionIDs.has(sessionId)) {
+      cleaned[key] = draft;
+    }
+    // Otherwise, it's orphaned and will be removed (not added to cleaned)
+  });
+
+  writeComposerDraftStore(cleaned);
+}
+
 function handleMessageInputUpdate(value: string) {
   messageInput.value = value;
   persistComposerDraftForCurrentContext();
@@ -2339,6 +2370,7 @@ function syncVisibleSessionsFromGraph() {
   }) as SessionInfo[];
   sessionParentById.value = sessionGraphStore.getParentMap(projectID || undefined);
   sessionGraphVersion.value = sessionGraphStore.getVersion();
+  pruneOrphanedComposerDrafts();
 }
 
 function registerProjectDirectories() {
