@@ -1263,15 +1263,7 @@ function setSidePanelTab(value: 'todo' | 'tree') {
 }
 
 function resolveProjectIdForSession(sessionId: string) {
-  const matched = sessions.value.find((session) => session.id === sessionId);
-  if (matched?.projectID) return matched.projectID;
-  const fromGraph = sessionGraphStore.getProjectIDForSession(
-    sessionId,
-    selectedProjectId.value || undefined,
-  );
-  if (fromGraph) return fromGraph;
-  if (selectedSessionId.value === sessionId) return selectedProjectId.value;
-  return '';
+  return sessionGraphStore.getProjectIDForSession(sessionId, selectedProjectId.value || undefined);
 }
 
 function clearComposerInputState() {
@@ -2661,11 +2653,11 @@ function storePendingWorktreeMeta(directory: string, branch?: string) {
 async function handleWorktreeReady(event: { directory: string; branch?: string }) {
   const directory = event.directory.trim();
   if (!directory) return;
-  const worktree = projectDirectory.value?.trim() || directory;
-  sessionGraphStore.ensureSandbox(worktree, directory);
+  const worktreeForDirectory = projectDirectory.value?.trim() || directory;
   if (event.branch) {
     sessionGraphStore.setSandboxBranch(directory, event.branch);
   }
+  sessionGraphStore.ensureSandbox(worktreeForDirectory, directory);
   markSessionGraphChanged();
 }
 
@@ -5890,42 +5882,21 @@ watch(
     const pdChanged = pd !== prevPd && typeof prevPd !== 'undefined';
     const adChanged = ad !== prevAd && typeof prevAd !== 'undefined';
 
+    if (!pdChanged && !adChanged) return;
+
+    selectedSessionId.value = '';
+    markSessionGraphChanged();
+
     if (pdChanged) {
-      selectedSessionId.value = '';
-      if (pd) {
-        void opencodeApi.getCurrentProject(OPENCODE_BASE_URL, pd).then((project) => {
-          const data = project as ProjectInfo;
-          if (!data?.id) return;
-          upsertProject(data);
-          if (projectDirectory.value !== pd) return;
-          if (sessionGraphStore.setSandboxProjectID(pd, data.id)) {
-            markSessionGraphChanged();
-          }
-        });
-      }
-      markSessionGraphChanged();
       void fetchWorktrees(pd || undefined);
     }
 
-    if (adChanged && !pdChanged) {
-      selectedSessionId.value = '';
-      if (ad) {
-        void opencodeApi.getCurrentProject(OPENCODE_BASE_URL, ad).then((project) => {
-          const data = project as ProjectInfo;
-          if (!data?.id) return;
-          upsertProject(data);
-          if (activeDirectory.value !== ad) return;
-          if (sessionGraphStore.setSandboxProjectID(ad, data.id)) {
-            markSessionGraphChanged();
-          }
-          void refreshSessionsForDirectory(ad);
-        });
-      }
-      markSessionGraphChanged();
-      if (ad) {
-        void fetchCommands(ad);
-        void fetchSessionStatus(ad || undefined);
-      }
+    const directoryToRefresh = ad || pd || undefined;
+    void refreshSessionsForDirectory(directoryToRefresh);
+
+    if (adChanged && ad) {
+      void fetchCommands(ad);
+      void fetchSessionStatus(ad || undefined);
     }
   },
   { immediate: true },
@@ -5963,22 +5934,6 @@ watch(
     if (!isValid) {
       if (preferredId) selectedSessionId.value = preferredId;
     }
-  },
-  { immediate: true },
-);
-
-watch(
-  selectedProjectId,
-  () => {
-    if (isBootstrapping.value) return;
-    const rootDirectory = sessionGraphStore.getProjectRootForProject(selectedProjectId.value || '');
-    if (rootDirectory && normalizeDirectory(projectDirectory.value) !== normalizeDirectory(rootDirectory)) {
-      projectDirectory.value = rootDirectory;
-    }
-    if (selectedProjectId.value && activeDirectory.value) {
-      sessionGraphStore.setProjectDirectory(selectedProjectId.value, activeDirectory.value);
-    }
-    markSessionGraphChanged();
   },
   { immediate: true },
 );
@@ -6316,10 +6271,11 @@ function isSessionDeleteEvent(type?: string) {
 }
 
 function matchesSelectedProject(sessionInfo: SessionInfo) {
-  const selectedProject = selectedProjectId.value;
-  if (!selectedProject) return true;
-  if (!sessionInfo.projectID) return true;
-  return sessionInfo.projectID === selectedProject;
+  if (!sessionInfo.directory) return true;
+  const sessionDirectory = normalizeDirectory(sessionInfo.directory);
+  const pd = normalizeDirectory(projectDirectory.value || '');
+  const ad = normalizeDirectory(activeDirectory.value || '');
+  return sessionDirectory === ad || sessionDirectory === pd;
 }
 
 function matchesSelectedWorktree(sessionInfo: SessionInfo) {
@@ -9795,42 +9751,26 @@ async function connect(options: { failFast?: boolean; timeoutMs?: number } = {})
 
     const projectUpdated = extractProjectUpdated(payload, resolvedEventType);
     if (projectUpdated) {
-      upsertProject(projectUpdated);
-      if (selectedProjectId.value && projectUpdated.id === selectedProjectId.value) {
-        const list = projectSessionDirectories(projectUpdated);
-        if (list.length === 0) {
-          return;
-        }
-        const current = activeDirectory.value;
-        if (current && !list.includes(current)) list.unshift(current);
-        const baseDir = projectBaseDirectory(projectUpdated);
-        if (baseDir && !list.includes(baseDir)) list.unshift(baseDir);
-        sessionGraphStore.setWorktrees(baseDir, list);
-        markSessionGraphChanged();
-      }
+      const worktree = typeof projectUpdated.worktree === 'string' ? projectUpdated.worktree : '';
+      const sandboxDirs = Array.isArray(projectUpdated.sandboxes)
+        ? projectUpdated.sandboxes.filter((entry): entry is string => typeof entry === 'string')
+        : [];
+      sessionGraphStore.syncSandboxes(worktree, sandboxDirs);
+      markSessionGraphChanged();
     }
 
     const sessionInfo = extractSessionInfo(payload, resolvedEventType);
     if (sessionInfo) {
       const isDelete = isSessionDeleteEvent(resolvedEventType);
-      const eventDirectory = extractEventDirectory(payload);
-      const resolvedProjectId =
-        sessionInfo.projectID ||
-        resolveProjectIdForSession(sessionInfo.id) ||
-        resolveProjectIdForDirectory(eventDirectory || sessionInfo.directory || undefined);
+      if (sessionInfo.projectID && sessionInfo.directory) {
+        sessionGraphStore.setSandboxProjectID(sessionInfo.directory, sessionInfo.projectID);
+      }
+      const resolvedProjectId = sessionInfo.projectID || resolveProjectIdForSession(sessionInfo.id);
       if (isDelete) {
         sessionGraphStore.removeSession(sessionInfo.id, resolvedProjectId || undefined);
         if (selectedSessionId.value === sessionInfo.id) selectedSessionId.value = '';
       } else {
-        sessionGraphStore.upsertSession(sessionInfo, {
-          projectIDHint: resolvedProjectId || undefined,
-          directoryHint: eventDirectory || sessionInfo.directory || undefined,
-          retention: sessionInfo.parentID ? 'ephemeral' : 'persistent',
-        });
-        const resolvedDirectory = eventDirectory || sessionInfo.directory || '';
-        if (sessionInfo.projectID && resolvedDirectory) {
-          sessionGraphStore.setSandboxProjectID(resolvedDirectory, sessionInfo.projectID);
-        }
+        upsertSessionGraph(sessionInfo);
         if (sessionInfo.parentID) {
           subagentSessionExpiry.set(sessionInfo.id, Date.now() + SUBAGENT_ACTIVE_TTL_MS);
         }
@@ -9838,18 +9778,10 @@ async function connect(options: { failFast?: boolean; timeoutMs?: number } = {})
       markSessionGraphChanged();
 
       if (matchesSelectedProject(sessionInfo)) {
-        const matchesWorktree = matchesSelectedWorktree(sessionInfo);
         if (isDelete) {
-          deleteSessionStatus(sessionInfo.id, sessionInfo.projectID);
+          deleteSessionStatus(sessionInfo.id, resolvedProjectId);
         } else {
-          if (
-            sessionInfo.directory &&
-            sessionInfo.projectID &&
-            selectedProjectId.value &&
-            sessionInfo.projectID === selectedProjectId.value
-          ) {
-            appendWorktreeDirectory(sessionInfo.directory);
-          }
+          if (sessionInfo.directory) appendWorktreeDirectory(sessionInfo.directory);
         }
       }
     }
