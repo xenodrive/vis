@@ -762,17 +762,39 @@ export function createSessionGraphStore() {
       string,
       Record<string, { projectID?: string; branch?: string; sessionCount: number }>
     > = {};
+    const projectRootByProjectID: Record<string, string> = {};
+    const directoryByProjectID: Record<string, string> = {};
+    const projectIDsByDirectory: Record<string, string[]> = {};
+    const worktreesByProjectRoot: Record<string, string[]> = {};
+    const vcsByDirectory: Record<string, { branch: string }> = {};
 
     tree.forEach((sandboxes, worktree) => {
       const bySandbox: Record<string, { projectID?: string; branch?: string; sessionCount: number }> = {};
+      const sandboxList: string[] = [];
       sandboxes.forEach((entry, sandbox) => {
         bySandbox[sandbox] = {
           projectID: entry.projectID,
           branch: entry.branch,
           sessionCount: entry.sessionIDs.size,
         };
+
+        sandboxList.push(sandbox);
+
+        if (entry.projectID) {
+          const directoryList = projectIDsByDirectory[sandbox] ?? [];
+          if (!directoryList.includes(entry.projectID)) directoryList.push(entry.projectID);
+          projectIDsByDirectory[sandbox] = directoryList;
+
+          if (!directoryByProjectID[entry.projectID]) directoryByProjectID[entry.projectID] = sandbox;
+          if (sandbox === worktree || !projectRootByProjectID[entry.projectID]) {
+            projectRootByProjectID[entry.projectID] = worktree;
+          }
+        }
+
+        if (entry.branch) vcsByDirectory[sandbox] = { branch: entry.branch };
       });
       serializedTree[worktree] = bySandbox;
+      worktreesByProjectRoot[worktree] = sandboxList;
     });
 
     const sessions = Array.from(nodesByKey.values()).map((node) => ({
@@ -791,11 +813,52 @@ export function createSessionGraphStore() {
       lastActiveAt: node.lastActiveAt,
     }));
 
+    const projectList = Object.keys(projectRootByProjectID).map((projectID) => {
+      const worktree = projectRootByProjectID[projectID];
+      const sandboxes = Object.entries(directoryByProjectID)
+        .filter(([, directory]) => {
+          const entry = getSandboxByDirectory(directory);
+          return entry?.projectID === projectID && directory !== worktree;
+        })
+        .map(([, directory]) => directory);
+      return {
+        id: projectID,
+        worktree,
+        sandboxes,
+      };
+    });
+
+    const nodes = sessions.map((session) => ({
+      key: session.key,
+      sessionID: session.sessionID,
+      projectID: session.projectID,
+      parentID: session.parentID,
+      title: session.title,
+      slug: session.slug,
+      directory: session.directory,
+      retention: session.retention,
+      status: session.status,
+      timeCreated: session.timeCreated,
+      timeUpdated: session.timeUpdated,
+      lastSeenAt: session.lastSeenAt,
+      lastActiveAt: session.lastActiveAt,
+    }));
+
     return {
       version,
       tree: serializedTree,
       sessions,
       statuses: Object.fromEntries(statusByKey),
+      nodeCount: nodesByKey.size,
+      sessionCount: sessionIndex.size,
+      nodes,
+      projectRootByProjectID,
+      directoryByProjectID,
+      projectIDsByDirectory,
+      projectList,
+      worktreesByProjectRoot,
+      vcsByDirectory,
+      pendingVcs: {},
     };
   }
 
