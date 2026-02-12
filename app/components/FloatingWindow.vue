@@ -71,7 +71,8 @@ provide(FLOATING_WINDOW_KEY, api);
 const windowStyle = computed(() => {
   const color = props.entry.color || '#3a4150';
   return {
-    transform: `translate3d(${props.entry.x}px, ${props.entry.y}px, 0)`,
+    '--win-x': `${props.entry.x}px`,
+    '--win-y': `${props.entry.y}px`,
     width: props.entry.width ? `${props.entry.width}px` : '600px',
     height: props.entry.height ? `${props.entry.height}px` : '400px',
     zIndex: props.entry.zIndex,
@@ -107,7 +108,9 @@ let dragPointerId = -1;
 
 function applyTransform(x: number, y: number) {
   const el = windowEl.value;
-  if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  if (!el) return;
+  el.style.setProperty('--win-x', `${x}px`);
+  el.style.setProperty('--win-y', `${y}px`);
 }
 
 function cancelSnapAnimation() {
@@ -330,9 +333,14 @@ function onResizeEnd(e: PointerEvent) {
 
 <style scoped>
 .floating-window {
+  --win-x: 0px;
+  --win-y: 0px;
+  --win-scale-x: 1;
+  --win-scale-y: 1;
   position: absolute;
   left: 0;
   top: 0;
+  transform: translate3d(var(--win-x), var(--win-y), 0) scale(var(--win-scale-x), var(--win-scale-y));
   will-change: transform;
   contain: layout paint;
   display: flex;
