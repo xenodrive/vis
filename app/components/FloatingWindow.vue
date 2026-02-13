@@ -4,6 +4,7 @@ import CodeContent from './CodeContent.vue';
 import { FLOATING_WINDOW_KEY, type FloatingWindowAPI } from '../composables/useFloatingWindow';
 import type { FloatingWindowEntry, useFloatingWindows } from '../composables/useFloatingWindows';
 import { useScrollFollow, type ScrollMode } from '../composables/useScrollFollow';
+import { Icon } from '@iconify/vue';
 
 const props = defineProps<{
   entry: FloatingWindowEntry;
@@ -320,7 +321,7 @@ function onResizeEnd(e: PointerEvent) {
           v-if="showResumeButton"
           class="follow-resume-btn"
           @click.stop="resumeFollow"
-        >&#x2193;</button>
+        ><Icon icon="lucide:arrow-down" :width="14" :height="14" /></button>
       </Transition>
     </div>
     <div 

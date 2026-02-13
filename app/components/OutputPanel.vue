@@ -233,7 +233,7 @@
             aria-label="Scroll to latest"
             @click="$emit('resume-follow')"
           >
-            ↓
+            <Icon icon="lucide:arrow-down" :width="14" :height="14" />
           </button>
         </div>
       </div>
@@ -255,6 +255,7 @@
 <script setup lang="ts">
 import { Transition, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MessageViewer from './MessageViewer.vue';
+import { Icon } from '@iconify/vue';
 type FileReadEntry = {
   time: number;
   expiresAt: number;
