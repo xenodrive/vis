@@ -186,12 +186,29 @@ onBeforeUnmount(() => {
 
 .message-content :deep(.markdown-host ul),
 .message-content :deep(.markdown-host ol) {
+  padding: 0.5em;
   padding-left: 1.35em;
+  margin: 0;
 }
 
-.message-content :deep(.markdown-host ul) {
-  padding: 0.5em;
-  margin: 0;
+.message-content :deep(.markdown-host ol) {
+  counter-reset: md-ol;
+  padding-left: 1.8em;
+}
+
+.message-content :deep(.markdown-host ol > li) {
+  list-style: none;
+  position: relative;
+  padding-left: 0.4em;
+  counter-increment: md-ol;
+}
+
+.message-content :deep(.markdown-host ol > li)::before {
+  content: counter(md-ol) '.';
+  position: absolute;
+  left: -1.4em;
+  color: #60a5fa;
+  font-variant-numeric: tabular-nums;
 }
 
 .message-content :deep(.markdown-host ul > li) {
@@ -240,6 +257,40 @@ onBeforeUnmount(() => {
 .message-content :deep(.markdown-host hr) {
   border: 0;
   border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.message-content :deep(.markdown-host table) {
+  border-collapse: collapse;
+  margin: 0.3em 0;
+  width: max-content;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+
+.message-content :deep(.markdown-host th),
+.message-content :deep(.markdown-host td) {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 0.2em 0.55em;
+}
+
+.message-content :deep(.markdown-host th) {
+  font-weight: 600;
+  background: rgba(51, 65, 85, 0.35);
+}
+
+.message-content :deep(.markdown-host tr:nth-child(even)) {
+  background: rgba(51, 65, 85, 0.12);
+}
+
+.message-content :deep(.markdown-host img) {
+  max-width: 100%;
+  height: auto;
+}
+
+.message-content :deep(.markdown-host del) {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 .message-content :deep(.markdown-host code:not(pre code)) {
