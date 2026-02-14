@@ -113,8 +113,13 @@
                       >
                         <div class="tree-session-main">
                           <span class="session-status-icon" :title="session.status">{{ sessionStatusIcon(session.status) }}</span>
-                          <span class="session-title">{{ session.title || session.slug || session.id }}</span>
-                          <span v-if="session.archivedAt" class="session-badge-archived">archived</span>
+                          <div class="session-info">
+                            <div class="session-info-top">
+                              <span class="session-title">{{ session.title || session.slug || session.id }}</span>
+                              <span v-if="session.archivedAt" class="session-badge-archived">archived</span>
+                            </div>
+                            <span v-if="session.timeUpdated" class="session-time">{{ formatSessionTime(session.timeUpdated) }}</span>
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -270,6 +275,7 @@ const displayedTree = computed(() => {
                 session.slug,
                 session.id,
                 session.archivedAt ? 'archived' : undefined,
+                session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined,
               ),
             );
             if (!worktreeMatches && !sandboxMatches && sessions.length === 0) return null;
@@ -310,7 +316,9 @@ const displayedTree = computed(() => {
 });
 
 function matchesQuery(query: string, ...fields: (string | undefined)[]) {
-  return fields.some((field) => field?.toLowerCase().includes(query));
+  const terms = query.split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return false;
+  return terms.every((term) => fields.some((field) => field?.toLowerCase().includes(term)));
 }
 
 function shortenPath(path: string) {
@@ -327,6 +335,16 @@ function sessionStatusIcon(status: TopPanelSession['status']) {
   if (status === 'retry') return '🔴';
   if (status === 'idle') return '🟢';
   return '⚪';
+}
+
+function formatSessionTime(timestamp: number) {
+  const d = new Date(timestamp);
+  const Y = d.getFullYear();
+  const M = String(d.getMonth() + 1).padStart(2, '0');
+  const D = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${Y}-${M}-${D} ${h}:${m}`;
 }
 
 function canDeleteSandbox(directory: string, worktreeDirectory: string) {
@@ -694,6 +712,27 @@ function handleOpenDirectory(close: () => void) {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+.session-info {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.session-info-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-time {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
 }
 
 .session-badge-archived {
