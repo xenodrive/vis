@@ -85,8 +85,11 @@
                         </div>
                       </div>
                       <div class="tree-actions">
+                        <button type="button" class="tree-action-button new-session" title="New session" @click.stop="handleCreateSessionIn(worktree.directory, sandbox.directory, close)">
+                          <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
+                        </button>
                         <button type="button" class="tree-action-button fork" @click.stop="handleCreateWorktree(sandbox.directory, close)">
-                          <Icon icon="lucide:git-branch" :width="11" :height="11" />
+                          <Icon icon="lucide:git-branch" :width="16" :height="16" />
                         </button>
                         <button
                           v-if="canDeleteSandbox(sandbox.directory, worktree.directory)"
@@ -94,7 +97,7 @@
                           class="tree-action-button danger"
                           @click.stop="handleSandboxDelete(sandbox.directory, close)"
                         >
-                          <Icon icon="lucide:trash-2" :width="11" :height="11" />
+                          <Icon icon="lucide:trash-2" :width="16" :height="16" />
                         </button>
                       </div>
                     </div>
@@ -120,7 +123,7 @@
                           :title="isShiftPressed ? 'Delete session (Shift)' : 'Archive session'"
                           @click.stop="handleSessionAction(session.id, close)"
                         >
-                          <Icon :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'" :width="11" :height="11" />
+                          <Icon :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'" :width="16" :height="16" />
                         </button>
                       </DropdownItem>
                     </div>
@@ -135,7 +138,7 @@
           </template>
         </Dropdown>
 
-        <button type="button" class="control-button new-session-button" @click="$emit('new-session')" title="New session">
+        <button type="button" class="control-button new-session-button" :disabled="!selectedSessionId" @click="$emit('new-session')" title="New session">
           <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
         </button>
       </div>
@@ -205,6 +208,7 @@ const emit = defineEmits<{
   (event: 'select-session', payload: SessionSelectPayload): void;
   (event: 'create-worktree-from', worktree: string): void;
   (event: 'new-session'): void;
+  (event: 'new-session-in', payload: { worktree: string; directory: string }): void;
   (event: 'delete-active-directory', value: string): void;
   (event: 'delete-session', value: string): void;
   (event: 'archive-session', value: string): void;
@@ -363,6 +367,11 @@ function selectFirstSearchResult(close: () => void) {
       return;
     }
   }
+}
+
+function handleCreateSessionIn(worktree: string, directory: string, close: () => void) {
+  emit('new-session-in', { worktree, directory });
+  close();
 }
 
 function handleCreateWorktree(worktree: string, close: () => void) {
@@ -606,8 +615,12 @@ function handleOpenDirectory(close: () => void) {
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  /* Reserve space for fork + delete buttons so layout doesn't shift when delete is hidden */
-  min-width: calc(26px + 6px + 26px);
+  /* Reserve space for new-session + fork + delete buttons so layout doesn't shift when delete is hidden */
+  min-width: calc(24px + 6px + 24px + 6px + 24px);
+}
+
+.tree-action-button.new-session {
+  color: #86efac;
 }
 
 .tree-action-button.fork {
@@ -621,8 +634,8 @@ function handleOpenDirectory(close: () => void) {
   color: #cbd5e1;
   font-size: 10px;
   line-height: 1;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   cursor: pointer;
   display: inline-flex;
@@ -740,6 +753,11 @@ function handleOpenDirectory(close: () => void) {
   height: 32px;
   padding: 0;
   justify-content: center;
+  color: #86efac;
+}
+
+.new-session-button:hover {
+  background: #1d2a45;
 }
 
 .notification-button {

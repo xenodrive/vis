@@ -12,6 +12,7 @@
           @select-notification="handleNotificationSessionSelect"
           @create-worktree-from="createWorktreeFromWorktree"
           @new-session="createNewSession"
+          @new-session-in="handleNewSessionInSandbox"
           @delete-active-directory="deleteWorktree"
           @delete-session="deleteSession"
           @archive-session="archiveSession"
@@ -61,6 +62,7 @@
               />
               <SidePanel
                 class="todo-panel"
+                :class="{ 'is-disabled': !hasSession }"
                 :collapsed="sidePanelCollapsed"
                 :active-tab="sidePanelActiveTab"
                 :todo-sessions="todoPanelSessions"
@@ -96,6 +98,7 @@
       <footer
         ref="inputEl"
         class="app-input"
+        :class="{ 'is-disabled': !hasSession }"
         :style="inputHeight !== null ? { height: `${inputHeight}px` } : undefined"
       >
         <div class="input-resizer" @pointerdown="startInputResize"></div>
@@ -1075,6 +1078,8 @@ const todoPanelSessions = computed(() => {
 
 const expandedTreePaths = computed(() => Array.from(expandedTreePathSet.value));
 
+const hasSession = computed(() => Boolean(selectedSessionId.value));
+
 const canSend = computed(() =>
   Boolean(
     uiInitState.value === 'ready' &&
@@ -1286,7 +1291,7 @@ function sessionSortKey(session: SessionInfo) {
 function pickPreferredSessionId(list: SessionInfo[]) {
   if (!Array.isArray(list) || list.length === 0) return '';
   const sorted = list
-    .filter((session) => !session.parentID)
+    .filter((session) => !session.parentID && !session.time?.archived)
     .slice()
     .sort((a, b) => sessionSortKey(b) - sessionSortKey(a));
   return sorted[0]?.id ?? '';
@@ -2833,6 +2838,43 @@ async function createNewSession() {
   }
 }
 
+let globalSessionFallbackInFlight = false;
+
+async function fallbackToGlobalSession() {
+  if (globalSessionFallbackInFlight) return;
+  if (!ensureConnectionReady('Fallback session')) return;
+  globalSessionFallbackInFlight = true;
+  try {
+    const list = await listSessionsByDirectory({
+      directory: '/',
+      instanceDirectory: '/',
+      roots: true,
+      limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
+    });
+    setSessions(list, '/');
+
+    const rootSessions = list.filter((s) => !s.parentID && !s.time?.archived);
+    const preferred = pickPreferredSessionId(rootSessions);
+
+    projectDirectory.value = '/';
+    activeDirectory.value = '/';
+
+    if (preferred) {
+      selectedSessionId.value = preferred;
+    } else {
+      await createNewSession();
+    }
+  } finally {
+    globalSessionFallbackInFlight = false;
+  }
+}
+
+async function handleNewSessionInSandbox(payload: { worktree: string; directory: string }) {
+  projectDirectory.value = payload.worktree;
+  activeDirectory.value = payload.directory;
+  await createNewSession();
+}
+
 function handleTopPanelSessionSelect(payload: {
   worktree: string;
   directory: string;
@@ -2894,6 +2936,9 @@ async function deleteSession(sessionId: string) {
     removeSessionFromGraph(sessionId);
     deleteSessionStatus(sessionId, selectedProjectId.value);
     void refreshSessionsForDirectory(activeDirectory.value || undefined);
+    if (!selectedSessionId.value && pickPreferredSessionId(filteredSessions.value) === '') {
+      await createNewSession();
+    }
   } catch (error) {
     sessionError.value = `Session delete failed: ${toErrorMessage(error)}`;
   }
@@ -2916,6 +2961,9 @@ async function archiveSession(sessionId: string) {
     }
     if (selectedSessionId.value === sessionId) selectedSessionId.value = '';
     void refreshSessionsForDirectory(activeDirectory.value || undefined);
+    if (!selectedSessionId.value && pickPreferredSessionId(filteredSessions.value) === '') {
+      await createNewSession();
+    }
   } catch (error) {
     sessionError.value = `Session archive failed: ${toErrorMessage(error)}`;
   }
@@ -2972,6 +3020,17 @@ async function handleProjectDirectorySelect(directory: string) {
   isProjectPickerOpen.value = false;
   if (!directory) return;
   projectDirectory.value = directory;
+  activeDirectory.value = directory;
+  // Auto-create a session when the opened directory has none
+  const list = await listSessionsByDirectory({
+    directory,
+    instanceDirectory: directory,
+    roots: true,
+    limit: ROOT_SESSION_BOOTSTRAP_LIMIT,
+  });
+  if (!list.some((s) => !s.parentID)) {
+    await createNewSession();
+  }
 }
 
 function collectKnownSandboxDirectories() {
@@ -4882,7 +4941,12 @@ watch(
   () => {
     if (!bootstrapReady.value && !isBootstrapping.value) return;
     if (isBootstrapping.value) return;
-    if (filteredSessions.value.length === 0) return;
+    if (filteredSessions.value.length === 0) {
+      if (!selectedSessionId.value) {
+        void fallbackToGlobalSession();
+      }
+      return;
+    }
     const preferredId = pickPreferredSessionId(filteredSessions.value);
     if (!selectedSessionId.value) {
       if (preferredId) selectedSessionId.value = preferredId;
@@ -7721,6 +7785,11 @@ onBeforeUnmount(() => {
   flex: 0 0 var(--todo-panel-width);
   width: var(--todo-panel-width);
   min-height: 0;
+}
+
+.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .tool-window-canvas {
