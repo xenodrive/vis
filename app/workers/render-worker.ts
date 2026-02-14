@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import Shiki from '@shikijs/markdown-it';
+import { fromHighlighter, type MarkdownItShikiSetupOptions } from '@shikijs/markdown-it/core';
 import { bundledLanguages, createHighlighter } from 'shiki/bundle/web';
 
 type RenderRequest = {
@@ -24,6 +24,9 @@ type DiffRow = {
   html: string;
   rowClass?: string;
 };
+
+type Highlighter = Awaited<ReturnType<typeof createHighlighter>>;
+type MarkdownShikiOptions = MarkdownItShikiSetupOptions & { langAlias?: Record<string, string> };
 
 let highlighterPromise: Promise<Awaited<ReturnType<typeof createHighlighter>>> | null = null;
 let cachedTheme = '';
@@ -52,7 +55,7 @@ function languageCandidates(lang: string) {
 }
 
 async function resolveLanguage(
-  highlighter: Awaited<ReturnType<typeof createHighlighter>>,
+  highlighter: Highlighter,
   lang: string,
 ) {
   const loaded =
@@ -70,7 +73,7 @@ async function resolveLanguage(
 type LanguageLoader = () => Promise<{ default: unknown }>;
 
 async function tryLoadLanguage(
-  highlighter: Awaited<ReturnType<typeof createHighlighter>>,
+  highlighter: Highlighter,
   candidate: string,
 ) {
   if (failedLanguageCache.has(candidate)) return false;
@@ -714,27 +717,94 @@ async function renderCodeHtml(request: RenderRequest) {
 
 let cachedMd: MarkdownIt | null = null;
 let cachedMdTheme = '';
+let cachedMdHighlighter: Highlighter | null = null;
+let cachedMdShikiOptions: MarkdownShikiOptions | null = null;
 
-async function getMarkdownIt(highlighter: Awaited<ReturnType<typeof createHighlighter>>, theme: string) {
-  if (!cachedMd || cachedMdTheme !== theme) {
-    cachedMdTheme = theme;
-    cachedMd = new MarkdownIt({ html: false, linkify: false, breaks: true });
-    cachedMd.use(
-      await Shiki({
-        themes
-      : {
-          light: theme,
-          dark: theme,
-        }
-      }),
-    );
+function parseFenceLanguage(info: string) {
+  const raw = info.trim().split(/\s+/, 1)[0] ?? '';
+  if (!raw || raw.startsWith('{')) return null;
+
+  let normalized = raw;
+  if (normalized.startsWith('.')) normalized = normalized.slice(1);
+  if (normalized.startsWith('language-')) normalized = normalized.slice('language-'.length);
+  if (!normalized) return null;
+
+  return { raw, normalized };
+}
+
+function collectMarkdownFenceLanguages(markdown: string) {
+  const langs = new Map<string, string>();
+  let fenceChar = '';
+  let fenceLength = 0;
+
+  for (const line of markdown.split('\n')) {
+    const match = /^(?: {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!match) continue;
+    const marker = match[1];
+    const info = match[2] ?? '';
+
+    if (!fenceChar) {
+      fenceChar = marker[0] ?? '';
+      fenceLength = marker.length;
+      const parsed = parseFenceLanguage(info);
+      if (parsed) langs.set(parsed.raw, parsed.normalized);
+      continue;
+    }
+
+    const isClosing = marker[0] === fenceChar && marker.length >= fenceLength && !info.trim();
+    if (isClosing) {
+      fenceChar = '';
+      fenceLength = 0;
+    }
   }
-  return cachedMd;
+
+  return langs;
+}
+
+async function resolveMarkdownLangAliases(highlighter: Highlighter, markdown: string) {
+  const aliases: Record<string, string> = {};
+  const langs = collectMarkdownFenceLanguages(markdown);
+
+  for (const [raw, normalized] of langs.entries()) {
+    const resolved = await resolveLanguage(highlighter, normalized);
+    aliases[raw] = resolved;
+    aliases[normalized] = resolved;
+    aliases[normalized.toLowerCase()] = resolved;
+  }
+
+  return aliases;
+}
+
+function getMarkdownIt(highlighter: Highlighter, theme: string) {
+  if (
+    !cachedMd ||
+    !cachedMdShikiOptions ||
+    cachedMdTheme !== theme ||
+    cachedMdHighlighter !== highlighter
+  ) {
+    cachedMdTheme = theme;
+    cachedMdHighlighter = highlighter;
+    const shikiOptions: MarkdownShikiOptions = {
+      themes: {
+        light: theme,
+        dark: theme,
+      },
+      langAlias: {},
+    };
+    cachedMdShikiOptions = shikiOptions;
+    cachedMd = new MarkdownIt({ html: false, linkify: false, breaks: true });
+    cachedMd.use(fromHighlighter(highlighter, shikiOptions));
+  }
+  if (!cachedMd || !cachedMdShikiOptions) {
+    throw new Error('failed to initialize markdown renderer');
+  }
+  return { md: cachedMd, shikiOptions: cachedMdShikiOptions };
 }
 
 async function renderMarkdownHtml(request: RenderRequest): Promise<string> {
   const highlighter = await getHighlighter(request.theme);
-  const md = await getMarkdownIt(highlighter, request.theme);
+  const { md, shikiOptions } = getMarkdownIt(highlighter, request.theme);
+  shikiOptions.langAlias = await resolveMarkdownLangAliases(highlighter, request.code);
   const rendered = md.render(request.code);
   return `<div class="markdown-host">${rendered}</div>`;
 }
