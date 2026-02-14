@@ -98,11 +98,14 @@ function extractSessionId(payload: unknown): string | undefined {
   return undefined;
 }
 
-function computeAllowedSessionIds(rootId: string, parents: Map<string, string>): Set<string> {
+function computeAllowedSessionIds(
+  rootId: string,
+  parents: Readonly<Record<string, string | undefined>>,
+): Set<string> {
   const allowed = new Set<string>();
   if (!rootId) return allowed;
   const childrenByParent = new Map<string, string[]>();
-  parents.forEach((parentId, sessionId) => {
+  Object.entries(parents).forEach(([sessionId, parentId]) => {
     if (!parentId) return;
     const bucket = childrenByParent.get(parentId) ?? [];
     bucket.push(sessionId);
@@ -221,10 +224,13 @@ export function useGlobalEvents(baseUrl: string) {
     return emitter.on(event, listener as any);
   }
 
-  function session(selectedSessionId: Ref<string>, sessionParentById: Ref<Map<string, string>>): SessionScope {
+  function session(
+    selectedSessionId: Ref<string>,
+    sessionParentById: Readonly<Record<string, string | undefined>>,
+  ): SessionScope {
     let allowed = new Set<string>();
     const stop = watchEffect(() => {
-      allowed = computeAllowedSessionIds(selectedSessionId.value, sessionParentById.value);
+      allowed = computeAllowedSessionIds(selectedSessionId.value, sessionParentById);
     });
     const disposers = new Set<() => void>();
 

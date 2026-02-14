@@ -816,6 +816,23 @@ const sessionParentById = computed(() => {
   return sessionGraphStore.getParentMap(projectID || undefined);
 });
 
+const sessionParentRecord = reactive<Record<string, string | undefined>>({});
+watch(
+  sessionParentById,
+  (parentMap) => {
+    const nextSessionIds = new Set(parentMap.keys());
+    Object.keys(sessionParentRecord).forEach((sessionId) => {
+      if (!nextSessionIds.has(sessionId)) {
+        delete sessionParentRecord[sessionId];
+      }
+    });
+    parentMap.forEach((parentId, sessionId) => {
+      sessionParentRecord[sessionId] = parentId;
+    });
+  },
+  { immediate: true },
+);
+
 const filteredSessions = computed(() =>
   sessions.value.filter((session) => {
     if (session.parentID) return false;
@@ -4440,7 +4457,7 @@ const toolRendererHelpers = {
 
 const ge = useGlobalEvents(OPENCODE_BASE_URL);
 
-const sessionScope = ge.session(selectedSessionId, sessionParentById as any);
+const sessionScope = ge.session(selectedSessionId, sessionParentRecord);
 const msg = useMessages(sessionScope);
 reasoning.bindScope(sessionScope);
 
