@@ -197,7 +197,7 @@ import { useGlobalEvents } from './composables/useGlobalEvents';
 import { useMessages } from './composables/useMessages';
 import { useReasoningWindows, type ReasoningFinish } from './composables/useReasoningWindows';
 import { renderWorkerHtml } from './utils/workerRenderer';
-import { extractFileRead as extractToolFileRead, extractPatch as extractToolPatch } from './utils/toolRenderers';
+import { extractFileRead as extractToolFileRead, extractPatch as extractToolPatch, extractXmlTagContent } from './utils/toolRenderers';
 import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
 import { createSessionGraphStore } from './utils/sessionGraph';
@@ -5912,6 +5912,24 @@ function parseFileRead(payload: unknown, eventType: string) {
        case 'read': {
          if (status === 'running') return null;
          const readPath = resolveReadWritePath(input, metadata, state);
+         if (outputText && outputText.includes('<type>directory</type>')) {
+           const entriesContent = extractXmlTagContent(outputText, 'entries') ?? outputText;
+           return {
+             content: () =>
+               renderWorkerHtml({
+                 id: `read-dir-${callId ?? Date.now().toString(36)}`,
+                 code: entriesContent,
+                 lang: 'text',
+                 theme: 'github-dark',
+                 gutterMode: 'none',
+               }),
+             variant: 'term' as const,
+             callId,
+             toolName: tool,
+             toolStatus: status,
+             title: toolPrefix('READ', readPath),
+           };
+         }
          const readLang = guessLanguageFromPath(readPath);
          const readRange = resolveReadRange(input);
          return {

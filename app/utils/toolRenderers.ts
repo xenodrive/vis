@@ -1,3 +1,12 @@
+export function extractXmlTagContent(text: string, tag: string): string | null {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const start = text.indexOf(open);
+  const end = text.indexOf(close);
+  if (start === -1 || end === -1 || end <= start) return null;
+  return text.slice(start + open.length, end).trim();
+}
+
 export type ToolRenderersHelpers = {
   FILE_READ_EVENT_TYPES: Set<string>;
   FILE_WRITE_EVENT_TYPES: Set<string>;
@@ -265,6 +274,24 @@ export function extractFileRead(
       case 'read': {
         if (status === 'running') return null;
         const readPath = helpers.resolveReadWritePath(input, metadata, state);
+        if (outputText && outputText.includes('<type>directory</type>')) {
+          const entriesContent = extractXmlTagContent(outputText, 'entries') ?? outputText;
+          return {
+            content: () =>
+              helpers.renderWorkerHtml({
+                id: `read-dir-${callId ?? Date.now().toString(36)}`,
+                code: entriesContent,
+                lang: 'text',
+                theme: 'github-dark',
+                gutterMode: 'none',
+              }),
+            variant: 'term' as const,
+            callId,
+            toolName: tool,
+            toolStatus: status,
+            title: toolPrefix('READ', readPath),
+          };
+        }
         const readLang = helpers.guessLanguageFromPath(readPath);
         const readRange = helpers.resolveReadRange(input);
         return {
