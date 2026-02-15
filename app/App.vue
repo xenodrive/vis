@@ -1043,9 +1043,7 @@ const isThinking = computed(() => {
     ownStatus === 'busy' ||
     ownStatus === 'retry' ||
     busyDescendantSessionIds.value.length > 0 ||
-    runningToolIds.size > 0 ||
-    isSending.value ||
-    isAborting.value,
+    runningToolIds.size > 0,
   );
 });
 const canAbort = computed(() =>

@@ -197,7 +197,7 @@
         title="Stop"
         @click="$emit('abort')"
       >
-        <Icon icon="lucide:square" :width="16" :height="16" />
+        <Icon icon="lucide:circle-x" :width="16" :height="16" />
       </button>
       <button
         v-else
