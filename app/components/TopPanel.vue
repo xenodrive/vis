@@ -151,7 +151,30 @@
         </button>
       </div>
       <div class="top-right">
-        <button type="button" class="control-button" @click="$emit('logout')">Logout</button>
+        <Dropdown
+          v-model:open="menuOpen"
+          auto-close
+          :popup-style="{ width: '160px', left: 'auto', right: 'anchor(right)' }"
+          @select="onMenuSelect"
+        >
+          <template #trigger>
+            <button type="button" class="control-button menu-button" @click.stop="menuOpen = !menuOpen">
+              <Icon icon="lucide:ellipsis-vertical" :width="16" :height="16" />
+            </button>
+          </template>
+          <DropdownItem value="settings">
+            <span class="menu-item-content">
+              <Icon icon="lucide:settings" :width="14" :height="14" />
+              Settings
+            </span>
+          </DropdownItem>
+          <DropdownItem value="logout">
+            <span class="menu-item-content">
+              <Icon icon="lucide:log-out" :width="14" :height="14" />
+              Logout
+            </span>
+          </DropdownItem>
+        </Dropdown>
       </div>
     </div>
   </div>
@@ -222,8 +245,16 @@ const emit = defineEmits<{
   (event: 'archive-session', value: string): void;
   (event: 'open-directory'): void;
   (event: 'open-shell'): void;
+  (event: 'open-settings'): void;
   (event: 'logout'): void;
 }>();
+
+const menuOpen = ref(false);
+
+function onMenuSelect(value: unknown) {
+  if (value === 'settings') emit('open-settings');
+  else if (value === 'logout') emit('logout');
+}
 
 const MAX_WORKTREES = 5;
 const MAX_SANDBOXES = 3;
@@ -881,6 +912,7 @@ function handleOpenDirectory(close: () => void) {
 .new-session-button {
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   padding: 0;
   justify-content: center;
   color: #86efac;
@@ -894,6 +926,7 @@ function handleOpenDirectory(close: () => void) {
 .open-shell-button {
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   padding: 0;
   justify-content: center;
   color: #c4b5fd;
@@ -903,6 +936,7 @@ function handleOpenDirectory(close: () => void) {
   position: relative;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   padding: 0;
   justify-content: center;
   color: #64748b;
@@ -986,5 +1020,28 @@ function handleOpenDirectory(close: () => void) {
 .control-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.menu-button {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+}
+
+.menu-button:hover {
+  background: transparent;
+  color: #e2e8f0;
+}
+
+.menu-item-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #e2e8f0;
 }
 </style>

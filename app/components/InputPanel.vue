@@ -157,7 +157,7 @@
           </div>
         </div>
         <div class="input-field compact">
-          <Dropdown
+           <Dropdown
             v-model="thinkingKeyValue"
             :label="selectedThinkingLabel"
             :placeholder="hasThinkingOptions ? 'Select variant' : 'Loading...'"
@@ -178,27 +178,26 @@
             </template>
           </Dropdown>
         </div>
-        <label class="enter-to-send-label" title="Send message with Enter key">
-          <input v-model="enterToSend" type="checkbox" class="enter-to-send-checkbox" />
-          <span>Enter</span>
-        </label>
+
       </div>
       <button
         type="button"
         class="input-button attach-button"
         :disabled="props.disabled || props.canAttach === false"
+        title="Attach"
         @click="triggerFileInput"
       >
-        <Icon icon="lucide:paperclip" :width="12" :height="12" /> Attach
+        <Icon icon="lucide:paperclip" :width="16" :height="16" />
       </button>
       <button
         v-if="isThinking"
         type="button"
         class="input-button stop send-button"
         :disabled="props.disabled || !canAbort"
+        title="Stop"
         @click="$emit('abort')"
       >
-        STOP
+        <Icon icon="lucide:square" :width="16" :height="16" />
       </button>
       <button
         v-else
@@ -208,7 +207,7 @@
         :title="sendTooltip"
         @click="$emit('send')"
       >
-        <Icon icon="lucide:send" :width="12" :height="12" /> Send
+        <Icon icon="lucide:send" :width="16" :height="16" />
       </button>
     </div>
   </div>
@@ -219,8 +218,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
-import { StorageKeys, storageGet, storageKey, storageSet } from '../utils/storageKeys';
 import { useMessages } from '../composables/useMessages';
+import { useSettings } from '../composables/useSettings';
 type ModelOption = {
   id: string;
   modelID: string;
@@ -277,8 +276,7 @@ const modelDropdownRef = ref<HTMLElement | null>(null);
 const activeCommandIndex = ref(0);
 const acceptMime = 'image/png,image/jpeg,image/gif,image/webp';
 
-const enterToSend = ref(storageGet(StorageKeys.settings.enterToSend) === 'true');
-watch(enterToSend, (value) => storageSet(StorageKeys.settings.enterToSend, String(value)));
+const { enterToSend } = useSettings();
 
 // --- Input history navigation ---
 const { roots: messageRoots, getTextContent } = useMessages();
@@ -318,13 +316,7 @@ watch(historyOpen, (open) => {
   }
 });
 
-function onStorageChange(event: StorageEvent) {
-  if (event.key === storageKey(StorageKeys.settings.enterToSend)) {
-    enterToSend.value = event.newValue === 'true';
-  }
-}
-onMounted(() => window.addEventListener('storage', onStorageChange));
-onUnmounted(() => window.removeEventListener('storage', onStorageChange));
+
 
 const sendTooltip = computed(() =>
   enterToSend.value ? 'Ctrl-Enter / Enter to send' : 'Ctrl-Enter to send',
@@ -755,29 +747,7 @@ const inputMessageStyle = computed(() => {
   height: 32px;
 }
 
-.enter-to-send-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: #94a3b8;
-  cursor: pointer;
-  white-space: nowrap;
-  user-select: none;
-  height: 32px;
-  padding: 0 4px;
-  flex: 0 0 auto;
-}
 
-.enter-to-send-label:hover {
-  color: #e2e8f0;
-}
-
-.enter-to-send-checkbox {
-  accent-color: #2563eb;
-  cursor: pointer;
-  margin: 0;
-}
 
 .input-dropdown-root {
   width: 100%;
@@ -1129,13 +1099,15 @@ const inputMessageStyle = computed(() => {
   color: #e2e8f0;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 6px 12px;
+  width: 32px;
   height: 32px;
+  padding: 0;
   font-size: 12px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .input-button:disabled {

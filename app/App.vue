@@ -19,6 +19,7 @@
           @archive-session="archiveSession"
           @select-session="handleTopPanelSessionSelect"
           @open-directory="openProjectPicker"
+          @open-settings="isSettingsOpen = true"
           @logout="handleLogout"
         />
       </header>
@@ -130,18 +131,6 @@
           <p class="app-loading-title">Connect to OpenCode Server</p>
           <div class="app-login-fields">
             <input
-              v-model="loginUrl"
-              type="text"
-              class="app-login-input"
-              placeholder="http://localhost:4096"
-              name="url"
-              @keydown.enter="handleLogin"
-            />
-            <label class="app-login-checkbox">
-              <input v-model="loginRequiresAuth" type="checkbox" />
-              The server requires authentication
-            </label>
-            <input
               v-model="loginUsername"
               type="text"
               class="app-login-input"
@@ -158,15 +147,29 @@
               :disabled="!loginRequiresAuth"
               @keydown.enter="handleLogin"
             />
+            <label class="app-login-checkbox">
+              <input v-model="loginRequiresAuth" type="checkbox" />
+              The server requires authentication
+            </label>
+            <input
+              v-model="loginUrl"
+              type="text"
+              class="app-login-input"
+              placeholder="http://localhost:4096"
+              name="url"
+              @keydown.enter="handleLogin"
+            />
           </div>
           <p v-if="initErrorMessage" class="app-loading-message app-error-message">{{ initErrorMessage }}</p>
           <button
             type="button"
-            class="app-loading-retry"
+            class="app-loading-retry bg-indigo-500!"
             @click="handleLogin"
           >
             Connect
           </button>
+
+          <Welcome :theme="shikiTheme" class="mt-8" />
         </div>
         <div v-else>
           <div class="app-loading-spinner" aria-hidden="true"></div>
@@ -201,6 +204,10 @@
       @close="isProjectPickerOpen = false"
       @select="handleProjectDirectorySelect"
     />
+    <SettingsModal
+      :open="isSettingsOpen"
+      @close="isSettingsOpen = false"
+    />
   </div>
 </template>
 
@@ -228,7 +235,9 @@ import GrepContent from './components/ToolWindow/Grep.vue';
 import ReasoningContent from './components/ToolWindow/Reasoning.vue';
 import WebContent from './components/ToolWindow/Web.vue';
 import SidePanel from './components/SidePanel.vue';
+import Welcome from './components/Welcome.vue';
 import TopPanel, { type TopPanelNotificationSession, type TopPanelWorktree } from './components/TopPanel.vue';
+import SettingsModal from './components/SettingsModal.vue';
 import PermissionContent from './components/ToolWindow/Permission.vue';
 import QuestionContent from './components/ToolWindow/Question.vue';
 import FileViewerContent from './components/FileViewer.vue';
@@ -712,6 +721,7 @@ const projectColorById = ref<Record<string, string>>({});
 const loadingWorktreeNameDirectories = new Set<string>();
 const initialQuery = readQuerySelection();
 const isProjectPickerOpen = ref(false);
+const isSettingsOpen = ref(false);
 const selectedMode = ref('build');
 const selectedModel = ref('');
 const selectedThinking = ref<string | undefined>(undefined);
