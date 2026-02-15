@@ -319,6 +319,12 @@ export function updatePtySize(
   }) as Promise<unknown>;
 }
 
+export function deletePty(baseUrl: string, ptyId: string, directory?: string) {
+  return sendJson(baseUrl, `/pty/${ptyId}`, 'DELETE', {
+    params: { directory },
+  }) as Promise<unknown>;
+}
+
 export async function sendCommand(
   baseUrl: string,
   sessionId: string,

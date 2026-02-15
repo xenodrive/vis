@@ -256,6 +256,14 @@ import * as opencodeApi from './utils/opencode';
 import { opencodeTheme, resolveTheme, resolveAgentColor } from './utils/theme';
 import { createSessionGraphStore } from './utils/sessionGraph';
 import { useCredentials } from './composables/useCredentials';
+import {
+  StorageKeys,
+  storageGet,
+  storageKey,
+  storageRemove,
+  storageSet,
+  storageSetJSON,
+} from './utils/storageKeys';
 
 const credentials = useCredentials();
 const FOLLOW_THRESHOLD_PX = 24;
@@ -264,8 +272,6 @@ const TOOL_COMPLETE_TTL_MS = 2_000;
 
 const CHILD_SESSION_PRUNE_TTL_MS = 20 * 60 * 1000;
 const ROOT_SESSION_BOOTSTRAP_LIMIT = 100_000;
-const SIDE_PANEL_COLLAPSED_STORAGE_KEY = 'opencode.sidePanelCollapsed.v1';
-const SIDE_PANEL_TAB_STORAGE_KEY = 'opencode.sidePanelTab.v1';
 const SHELL_WINDOW_Z_BASE = 1_000_000;
 const PERMISSION_WINDOW_WIDTH = 760;
 const PERMISSION_WINDOW_HEIGHT = 340;
@@ -292,9 +298,6 @@ const TERM_FONT_FAMILY =
   "'Iosevka Term', 'Iosevka Fixed', 'JetBrains Mono', 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace";
 const MAIN_REASONING_TITLE = 'Reasoning';
 const REASONING_CLOSE_DELAY_MS = 3000;
-const SHELL_PTY_STORAGE_KEY = 'opencode.shellPtys';
-const COMPOSER_DRAFT_STORAGE_KEY = 'opencode.composerDrafts.v1';
-const AUTH_ERROR_STORAGE_KEY = 'opencode.lastAuthError.v1';
 const ATTACHMENT_MIME_ALLOWLIST = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
 
@@ -402,7 +405,6 @@ type ShellSession = {
   terminal: Terminal;
   fitAddon: FitAddon;
   socket?: WebSocket;
-  sessionId: string;
 };
 
 type Attachment = {
@@ -499,7 +501,6 @@ const composerDraftTabId =
     ? crypto.randomUUID()
     : `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const shellSessionsByPtyId = new Map<string, ShellSession>();
-const shellPtyIdsBySessionId = new Map<string, Set<string>>();
 const pendingShellFits = new Map<string, number>();
 const ptyMetaDecoder = new TextDecoder();
 let floatingExtentResizeObserver: ResizeObserver | null = null;
@@ -1367,17 +1368,12 @@ function parseComposerDraftStore(raw: string | null) {
 }
 
 function readComposerDraftStore() {
-  if (typeof window === 'undefined') return {} as Record<string, ComposerDraft>;
-  return parseComposerDraftStore(window.localStorage.getItem(COMPOSER_DRAFT_STORAGE_KEY));
+  const raw = storageGet(StorageKeys.drafts.composer);
+  return parseComposerDraftStore(raw);
 }
 
 function writeComposerDraftStore(store: Record<string, ComposerDraft>) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    return;
-  }
+  storageSetJSON(StorageKeys.drafts.composer, store);
 }
 
 function readComposerDraft(contextKey: string) {
@@ -1412,33 +1408,21 @@ function removeComposerDraft(contextKey: string) {
 }
 
 function readSidePanelCollapsed() {
-  if (typeof window === 'undefined') return false;
-  const raw = window.localStorage.getItem(SIDE_PANEL_COLLAPSED_STORAGE_KEY);
+  const raw = storageGet(StorageKeys.state.sidePanelCollapsed);
   return raw === '1';
 }
 
 function persistSidePanelCollapsed(value: boolean) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(SIDE_PANEL_COLLAPSED_STORAGE_KEY, value ? '1' : '0');
-  } catch {
-    return;
-  }
+  storageSet(StorageKeys.state.sidePanelCollapsed, value ? '1' : '0');
 }
 
 function readSidePanelTab(): 'todo' | 'tree' {
-  if (typeof window === 'undefined') return 'todo' as const;
-  const raw = window.localStorage.getItem(SIDE_PANEL_TAB_STORAGE_KEY);
+  const raw = storageGet(StorageKeys.state.sidePanelTab);
   return raw === 'tree' ? 'tree' : 'todo';
 }
 
 function persistSidePanelTab(value: 'todo' | 'tree') {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(SIDE_PANEL_TAB_STORAGE_KEY, value);
-  } catch {
-    return;
-  }
+  storageSet(StorageKeys.state.sidePanelTab, value);
 }
 
 function toggleSidePanelCollapsed() {
@@ -1674,7 +1658,7 @@ function handleSelectedThinkingUpdate(value: string | undefined) {
 
 function handleComposerDraftStorage(event: StorageEvent) {
   if (event.storageArea !== window.localStorage) return;
-  if (event.key !== COMPOSER_DRAFT_STORAGE_KEY) return;
+  if (event.key !== storageKey(StorageKeys.drafts.composer)) return;
   const contextKey = draftKeyForSelectedContext();
   if (!contextKey) return;
   const store = parseComposerDraftStore(event.newValue);
@@ -1912,62 +1896,6 @@ function getRandomWindowPosition(size?: { width?: number; height?: number }) {
     x: Math.round(Math.random() * maxLeft),
     y: Math.round(Math.random() * maxTop),
   };
-}
-
-function loadShellPtyStorage() {
-  if (typeof window === 'undefined') return {} as Record<string, string[]>;
-  try {
-    const raw = window.localStorage.getItem(SHELL_PTY_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, string[]>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistShellPtyStorage() {
-  if (typeof window === 'undefined') return;
-  const data: Record<string, string[]> = {};
-  shellPtyIdsBySessionId.forEach((set, sessionId) => {
-    data[sessionId] = Array.from(set);
-  });
-  try {
-    window.localStorage.setItem(SHELL_PTY_STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    return;
-  }
-}
-
-function hydrateShellPtyStorage() {
-  const stored = loadShellPtyStorage();
-  Object.entries(stored).forEach(([sessionId, list]) => {
-    if (!Array.isArray(list)) return;
-    const set = new Set<string>();
-    list.forEach((id) => {
-      if (typeof id === 'string') set.add(id);
-    });
-    if (set.size > 0) shellPtyIdsBySessionId.set(sessionId, set);
-  });
-}
-
-function addShellPtyId(sessionId: string, ptyId: string) {
-  const set = shellPtyIdsBySessionId.get(sessionId) ?? new Set<string>();
-  set.add(ptyId);
-  shellPtyIdsBySessionId.set(sessionId, set);
-  persistShellPtyStorage();
-}
-
-function removeShellPtyId(sessionId: string, ptyId: string) {
-  const set = shellPtyIdsBySessionId.get(sessionId);
-  if (!set) return;
-  set.delete(ptyId);
-  if (set.size === 0) shellPtyIdsBySessionId.delete(sessionId);
-  persistShellPtyStorage();
-}
-
-function getShellPtyIds(sessionId: string) {
-  return shellPtyIdsBySessionId.get(sessionId) ?? new Set<string>();
 }
 
 function parseShellArgs(input: string) {
@@ -3572,14 +3500,14 @@ async function fetchPtyList(directory?: string) {
   return data.map(parsePtyInfo).filter((pty): pty is PtyInfo => Boolean(pty));
 }
 
-async function createPtySession(sessionId: string, command?: string, args?: string[]) {
+async function createPtySession(command?: string, args?: string[]) {
   const directory = activeDirectory.value || undefined;
   const data = await opencodeApi.createPty(credentials.baseUrl.value, {
     directory,
     command,
     args,
     cwd: directory,
-    title: `Shell (${sessionId.slice(0, 6)})`,
+    title: 'Shell',
   });
   return parsePtyInfo(data);
 }
@@ -3593,7 +3521,7 @@ async function updatePtySize(ptyId: string, rows: number, cols: number, director
   return parsePtyInfo(data);
 }
 
-function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?: boolean } = {}) {
+function ensureShellWindow(pty: PtyInfo) {
   if (shellSessionsByPtyId.has(pty.id)) return;
   const key = `shell:${pty.id}`;
   const randomPosition = getRandomWindowPosition();
@@ -3610,7 +3538,6 @@ function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?
     expiry: Infinity,
     onResize: () => scheduleShellFit(pty.id),
   });
-  if (!options.preserve) addShellPtyId(sessionId, pty.id);
   const terminal = new Terminal({
     fontFamily: TERM_FONT_FAMILY,
     fontSize: TERM_FONT_SIZE_PX,
@@ -3629,7 +3556,6 @@ function ensureShellWindow(pty: PtyInfo, sessionId: string, options: { preserve?
     pty,
     terminal,
     fitAddon,
-    sessionId,
   });
   nextTick(() => {
     const host = toolWindowCanvasEl.value?.querySelector(
@@ -3734,7 +3660,7 @@ function connectShellSocket(ptyId: string) {
   });
 }
 
-function removeShellWindow(ptyId: string, options: { preserve?: boolean } = {}) {
+function removeShellWindow(ptyId: string, options?: { kill?: boolean }) {
   const session = shellSessionsByPtyId.get(ptyId);
   if (!session) return;
   const pending = pendingShellFits.get(ptyId);
@@ -3744,42 +3670,42 @@ function removeShellWindow(ptyId: string, options: { preserve?: boolean } = {}) 
   session.terminal.dispose();
   shellSessionsByPtyId.delete(ptyId);
   fw.close(`shell:${ptyId}`);
-  if (!options.preserve) removeShellPtyId(session.sessionId, ptyId);
+  if (options?.kill) {
+    const directory = session.pty.cwd || activeDirectory.value || undefined;
+    opencodeApi.deletePty(credentials.baseUrl.value, ptyId, directory).catch((error) => {
+      log('PTY delete failed', error);
+    });
+  }
 }
 
 function handleFloatingWindowClose(key: string) {
   if (key.startsWith('shell:')) {
     const ptyId = key.slice('shell:'.length);
-    removeShellWindow(ptyId, { preserve: false });
+    removeShellWindow(ptyId, { kill: true });
     return;
   }
   void fw.close(key);
 }
 
-function disposeShellWindows(options: { preserve?: boolean } = {}) {
+function disposeShellWindows() {
   const ids = Array.from(shellSessionsByPtyId.keys());
-  ids.forEach((ptyId) => removeShellWindow(ptyId, options));
+  ids.forEach((ptyId) => removeShellWindow(ptyId));
 }
 
-async function restoreShellSessions(sessionId: string) {
-  if (!sessionId) return;
-  const tracked = getShellPtyIds(sessionId);
-  if (tracked.size === 0) return;
+let shellDirectory = '';
+
+async function restoreShellSessions() {
+  const directory = activeDirectory.value || '';
+  const sandboxChanged = directory !== shellDirectory;
+  shellDirectory = directory;
+  if (sandboxChanged) {
+    disposeShellWindows();
+  }
   try {
-    const ptys = await fetchPtyList(activeDirectory.value || undefined);
-    const available = new Map<string, PtyInfo>();
-    ptys.forEach((pty) => available.set(pty.id, pty));
-    tracked.forEach((ptyId) => {
-      const pty = available.get(ptyId);
-      if (!pty) {
-        removeShellPtyId(sessionId, ptyId);
-        return;
-      }
-      if (pty.status === 'exited') {
-        removeShellPtyId(sessionId, ptyId);
-        return;
-      }
-      ensureShellWindow(pty, sessionId, { preserve: true });
+    const ptys = await fetchPtyList(directory || undefined);
+    ptys.forEach((pty) => {
+      if (pty.status === 'exited') return;
+      ensureShellWindow(pty);
     });
   } catch (error) {
     log('PTY restore failed', error);
@@ -3787,11 +3713,9 @@ async function restoreShellSessions(sessionId: string) {
 }
 
 async function openShellFromInput(input: string) {
-  const sessionId = selectedSessionId.value;
-  if (!sessionId) return;
   const { command, args } = parseShellArgs(input);
-  const pty = await createPtySession(sessionId, command, args);
-  if (pty) ensureShellWindow(pty, sessionId);
+  const pty = await createPtySession(command, args);
+  if (pty) ensureShellWindow(pty);
 }
 
 function parseSlashCommand(input: string) {
@@ -4286,6 +4210,7 @@ watch(
     nextTick(() => {
       syncFloatingExtent();
       inputPanelRef.value?.focus();
+      void restoreShellSessions();
     });
   },
   { immediate: true },
@@ -4305,8 +4230,7 @@ async function reloadSelectedSessionState() {
       markSessionGraphChanged();
     }
   }
-  disposeShellWindows({ preserve: true });
-  fw.closeAll();
+  fw.closeAll({ exclude: (key) => key.startsWith('shell:') });
   msg.reset();
   resetFollow();
   reasoning.reset();
@@ -4319,7 +4243,9 @@ async function reloadSelectedSessionState() {
     if (msg.roots.value.length === 0) {
       scrollOutputPanelToBottom(false);
     }
-    await restoreShellSessions(selectedSessionId.value);
+    if (uiInitState.value === 'ready') {
+      await restoreShellSessions();
+    }
     void reloadTodosForAllowedSessions();
     void refreshSessionDiff();
     void loadTreePath('.');
@@ -6170,11 +6096,9 @@ function handlePtyEvent(event: {
   info: PtyInfo | null;
   id?: string;
 }) {
-  const sessionId = selectedSessionId.value;
-  if (!sessionId) return;
-  const tracked = getShellPtyIds(sessionId);
   const ptyId = event.id ?? event.info?.id;
-  if (!ptyId || !tracked.has(ptyId)) return;
+  if (!ptyId) return;
+  if (!shellSessionsByPtyId.has(ptyId)) return;
   if (event.type === 'pty.exited') {
     removeShellWindow(ptyId);
     return;
@@ -6523,7 +6447,7 @@ async function startInitialization() {
     const msg = toErrorMessage(error);
     connectionState.value = 'error';
     if (/\(40[13]\)/.test(msg)) {
-      try { window.localStorage.setItem(AUTH_ERROR_STORAGE_KEY, msg); } catch {}
+      storageSet(StorageKeys.state.lastAuthError, msg);
       credentials.clear();
       initErrorMessage.value = msg;
       uiInitState.value = 'login';
@@ -6554,7 +6478,7 @@ function handleAbortInit() {
 function handleLogout() {
   credentials.clear();
   ge.disconnect();
-  disposeShellWindows({ preserve: false });
+  disposeShellWindows();
   uiInitState.value = 'login';
   initErrorMessage.value = '';
   connectionState.value = 'connecting';
@@ -6567,8 +6491,6 @@ onMounted(() => {
       handleWindowResize();
     });
   }
-  hydrateShellPtyStorage();
-  
   credentials.load();
   
   if (credentials.isConfigured.value) {
@@ -6579,13 +6501,11 @@ onMounted(() => {
     void startInitialization();
   } else {
     uiInitState.value = 'login';
-    try {
-      const savedError = window.localStorage.getItem(AUTH_ERROR_STORAGE_KEY);
-      if (savedError) {
-        initErrorMessage.value = savedError;
-        window.localStorage.removeItem(AUTH_ERROR_STORAGE_KEY);
-      }
-    } catch {}
+    const savedError = storageGet(StorageKeys.state.lastAuthError);
+    if (savedError) {
+      initErrorMessage.value = savedError;
+      storageRemove(StorageKeys.state.lastAuthError);
+    }
   }
   const availableThemes = getBundledThemeNames();
   const chosenTheme = pickShikiTheme(availableThemes);
@@ -6624,7 +6544,7 @@ onMounted(() => {
     ge.on('connection.error', (payload) => {
       if (payload.statusCode === 401 || payload.statusCode === 403) {
         const msg = `${payload.message} (HTTP ${payload.statusCode})`;
-        try { window.localStorage.setItem(AUTH_ERROR_STORAGE_KEY, msg); } catch {}
+        storageSet(StorageKeys.state.lastAuthError, msg);
         credentials.clear();
         uiInitState.value = 'login';
         initErrorMessage.value = msg;
@@ -6805,6 +6725,11 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
+    ge.on('pty.deleted', ({ id }) => {
+      removeShellWindow(id);
+    }),
+  );
+  globalEventUnsubscribers.push(
     sessionScope.on('message.part.updated', ({ part }) => {
       if (part.type !== 'tool') return;
       openToolPartAsWindow(part);
@@ -6830,7 +6755,7 @@ onBeforeUnmount(() => {
   mainSessionScope.dispose();
   sessionScope.dispose();
   ge.disconnect();
-  disposeShellWindows({ preserve: true });
+  disposeShellWindows();
 });
 </script>
 
