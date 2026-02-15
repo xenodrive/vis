@@ -8,7 +8,6 @@
         :disabled="props.disabled"
         placeholder="Send a message..."
         @keydown="handleKeydown"
-        @keydown.enter.ctrl.prevent="$emit('send')"
         @paste="handlePaste"
         @drop="handleDrop"
         @dragover.prevent
@@ -155,6 +154,10 @@
             </template>
           </Dropdown>
         </div>
+        <label class="enter-to-send-label" title="Send message with Enter key">
+          <input v-model="enterToSend" type="checkbox" class="enter-to-send-checkbox" />
+          <span>Enter</span>
+        </label>
       </div>
       <button
         type="button"
@@ -178,6 +181,7 @@
         type="button"
         class="input-button primary send-button"
         :disabled="props.disabled || !canSend"
+        :title="sendTooltip"
         @click="$emit('send')"
       >
         <Icon icon="lucide:send" :width="12" :height="12" /> Send
@@ -187,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
@@ -246,6 +250,22 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const modelDropdownRef = ref<HTMLElement | null>(null);
 const activeCommandIndex = ref(0);
 const acceptMime = 'image/png,image/jpeg,image/gif,image/webp';
+
+const ENTER_TO_SEND_KEY = 'enterToSend';
+const enterToSend = ref(localStorage.getItem(ENTER_TO_SEND_KEY) === 'true');
+watch(enterToSend, (value) => localStorage.setItem(ENTER_TO_SEND_KEY, String(value)));
+
+function onStorageChange(event: StorageEvent) {
+  if (event.key === ENTER_TO_SEND_KEY) {
+    enterToSend.value = event.newValue === 'true';
+  }
+}
+onMounted(() => window.addEventListener('storage', onStorageChange));
+onUnmounted(() => window.removeEventListener('storage', onStorageChange));
+
+const sendTooltip = computed(() =>
+  enterToSend.value ? 'Ctrl-Enter / Enter to send' : 'Ctrl-Enter to send',
+);
 
 const slashQuery = computed(() => {
   const value = messageValue.value;
@@ -430,18 +450,33 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault();
     return;
   }
+  // Ctrl+Enter: always send
+  if (event.key === 'Enter' && event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    emit('send');
+    return;
+  }
+  // Enter (no modifiers): send or newline depending on setting
   if (
     event.key === 'Enter' &&
     !event.ctrlKey &&
     !event.metaKey &&
     !event.shiftKey &&
-    !event.altKey &&
-    messageValue.value.startsWith('/')
+    !event.altKey
   ) {
-    const commandName = extractSlashCommand(messageValue.value);
-    if (!hasMatchingCommand(commandName)) return;
-    event.preventDefault();
-    emit('send');
+    if (enterToSend.value) {
+      event.preventDefault();
+      emit('send');
+      return;
+    }
+    // Default: send only for recognized slash commands
+    if (messageValue.value.startsWith('/')) {
+      const commandName = extractSlashCommand(messageValue.value);
+      if (hasMatchingCommand(commandName)) {
+        event.preventDefault();
+        emit('send');
+      }
+    }
   }
 }
 
@@ -638,6 +673,30 @@ const inputMessageStyle = computed(() => {
 
 .input-selects .input-control {
   height: 32px;
+}
+
+.enter-to-send-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  height: 32px;
+  padding: 0 4px;
+  flex: 0 0 auto;
+}
+
+.enter-to-send-label:hover {
+  color: #e2e8f0;
+}
+
+.enter-to-send-checkbox {
+  accent-color: #2563eb;
+  cursor: pointer;
+  margin: 0;
 }
 
 .input-dropdown-root {
