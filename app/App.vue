@@ -303,7 +303,7 @@ const PERMISSION_WINDOW_HEIGHT = 340;
 const PERMISSION_WINDOW_MIN_WIDTH = 560;
 const PERMISSION_WINDOW_MIN_HEIGHT = 220;
 const QUESTION_WINDOW_WIDTH = 760;
-const QUESTION_WINDOW_HEIGHT = 380;
+const QUESTION_WINDOW_HEIGHT = 560;
 const QUESTION_WINDOW_MIN_WIDTH = 560;
 const QUESTION_WINDOW_MIN_HEIGHT = 240;
 const FILE_VIEWER_WINDOW_WIDTH = 840;
@@ -6466,20 +6466,26 @@ async function handlePermissionReply(payload: { requestId: string; reply: Permis
   }
 }
 
+function getQuestionContextText(request: QuestionRequest): string {
+  if (!request.tool?.messageID) return '';
+  return msg.getTextContent(request.tool.messageID) || '';
+}
+
 function upsertQuestionEntry(request: QuestionRequest) {
   const key = `question:${request.id}`;
   fw.open(key, {
     component: QuestionContent,
     props: {
       request,
+      contextText: getQuestionContextText(request),
       isSubmitting: isQuestionSubmitting(request.id),
       error: getQuestionError(request.id),
       onReply: handleQuestionReply,
       onReject: handleQuestionReject,
     },
     closable: false,
-    resizable: false,
-    scroll: 'manual',
+    resizable: true,
+    scroll: 'follow',
     color: '#34d399',
     title: `Question: ${request.questions?.[0]?.header || 'request'}`,
     width: QUESTION_WINDOW_WIDTH,
@@ -6492,9 +6498,11 @@ function refreshQuestionWindow(requestId: string) {
   const key = `question:${requestId}`;
   const entry = fw.get(key);
   if (!entry) return;
+  const request = entry.props?.request as QuestionRequest | undefined;
   fw.updateOptions(key, {
     props: {
       ...entry.props,
+      contextText: request ? getQuestionContextText(request) : '',
       isSubmitting: isQuestionSubmitting(requestId),
       error: getQuestionError(requestId),
     },

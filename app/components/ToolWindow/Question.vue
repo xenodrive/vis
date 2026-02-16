@@ -21,6 +21,10 @@
     </div>
 
     <div class="question-body">
+      <div v-if="contextText" class="context-text-area">
+        <MessageViewer :code="contextText" lang="markdown" theme="github-dark" />
+      </div>
+
       <div
         v-for="(item, index) in request.questions"
         :key="`${request.id}-${index}-${item.header}`"
@@ -48,14 +52,14 @@
         </div>
 
         <div v-if="item.custom !== false" class="custom-answer">
-          <input
-            type="text"
+          <textarea
             class="custom-input"
+            rows="3"
             :value="customAnswers[index] ?? ''"
             :disabled="isSubmitting"
             placeholder="Type your own answer"
             @input="updateCustom(index, $event)"
-          />
+          ></textarea>
         </div>
       </div>
 
@@ -84,7 +88,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import MessageViewer from '../MessageViewer.vue';
+import { StorageKeys, storageGetJSON, storageSetJSON, storageKey } from '../../utils/storageKeys';
 
 type QuestionOption = {
   label: string;
@@ -109,8 +115,14 @@ type QuestionRequest = {
   };
 };
 
+type QuestionDraft = {
+  selectedAnswers: string[][];
+  customAnswers: string[];
+};
+
 const props = defineProps<{
   request: QuestionRequest;
+  contextText?: string;
   isSubmitting?: boolean;
   error?: string;
 }>();
@@ -123,9 +135,73 @@ const emit = defineEmits<{
 const selectedAnswers = ref<string[][]>([]);
 const customAnswers = ref<string[]>([]);
 
+// --- Draft save / restore ---
+
+function draftStorageKey(): string {
+  return StorageKeys.drafts.question;
+}
+
+function loadAllDrafts(): Record<string, QuestionDraft> {
+  return storageGetJSON<Record<string, QuestionDraft>>(draftStorageKey()) ?? {};
+}
+
+function saveDraft() {
+  const all = loadAllDrafts();
+  all[props.request.id] = {
+    selectedAnswers: selectedAnswers.value,
+    customAnswers: customAnswers.value,
+  };
+  storageSetJSON(draftStorageKey(), all);
+}
+
+function clearDraft() {
+  const all = loadAllDrafts();
+  delete all[props.request.id];
+  storageSetJSON(draftStorageKey(), all);
+}
+
+function restoreDraft(): boolean {
+  const all = loadAllDrafts();
+  const draft = all[props.request.id];
+  if (!draft) return false;
+  if (
+    Array.isArray(draft.selectedAnswers) &&
+    draft.selectedAnswers.length === props.request.questions.length
+  ) {
+    selectedAnswers.value = draft.selectedAnswers;
+  }
+  if (
+    Array.isArray(draft.customAnswers) &&
+    draft.customAnswers.length === props.request.questions.length
+  ) {
+    customAnswers.value = draft.customAnswers;
+  }
+  return true;
+}
+
+let draftTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleDraftSave() {
+  if (draftTimer !== null) clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    draftTimer = null;
+    saveDraft();
+  }, 400);
+}
+
+onBeforeUnmount(() => {
+  if (draftTimer !== null) {
+    clearTimeout(draftTimer);
+    saveDraft();
+  }
+});
+
+// --- Answers ---
+
 function resetAnswers() {
   selectedAnswers.value = props.request.questions.map(() => []);
   customAnswers.value = props.request.questions.map(() => '');
+  if (!restoreDraft()) return;
 }
 
 watch(
@@ -145,22 +221,27 @@ function toggleOption(index: number, label: string, multiple: boolean) {
   if (multiple) {
     if (current.includes(label)) {
       selectedAnswers.value[index] = current.filter((value) => value !== label);
+      scheduleDraftSave();
       return;
     }
     selectedAnswers.value[index] = [...current, label];
+    scheduleDraftSave();
     return;
   }
   if (current.includes(label)) {
     selectedAnswers.value[index] = [];
+    scheduleDraftSave();
     return;
   }
   selectedAnswers.value[index] = [label];
+  scheduleDraftSave();
 }
 
 function updateCustom(index: number, event: Event) {
   const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
+  if (!(target instanceof HTMLTextAreaElement)) return;
   customAnswers.value[index] = target.value;
+  scheduleDraftSave();
 }
 
 function buildAnswers() {
@@ -176,6 +257,7 @@ const canReply = computed(() => buildAnswers().every((answer) => answer.length >
 
 function emitReply() {
   if (!canReply.value) return;
+  clearDraft();
   emit('reply', {
     requestId: props.request.id,
     answers: buildAnswers(),
@@ -183,6 +265,7 @@ function emitReply() {
 }
 
 function emitReject() {
+  clearDraft();
   emit('reject', props.request.id);
 }
 </script>
@@ -259,6 +342,17 @@ function emitReject() {
   flex-direction: column;
   gap: 8px;
   padding-right: 2px;
+}
+
+.context-text-area {
+  max-height: 40%;
+  overflow-y: auto;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(6, 24, 18, 0.4);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .question-section {
@@ -348,6 +442,16 @@ function emitReject() {
   color: #d1fae5;
   font-size: 11px;
   padding: 6px 8px;
+  min-height: 3em;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.custom-input:focus {
+  border-color: rgba(52, 211, 153, 0.6);
 }
 
 .question-error {
