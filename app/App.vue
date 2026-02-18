@@ -2523,6 +2523,12 @@ function ensureBrowserNotificationPermission() {
   void Notification.requestPermission();
 }
 
+/** The window is visible AND focused — the user is likely paying attention. */
+function isWindowAttentive(): boolean {
+  if (typeof document === 'undefined') return true;
+  return !document.hidden && document.hasFocus();
+}
+
 function showBrowserNotification(
   projectId: string,
   sessionId: string,
@@ -2530,7 +2536,7 @@ function showBrowserNotification(
 ) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   if (typeof Notification === 'undefined') return;
-  if (!document.hidden) return;
+  if (isWindowAttentive()) return;
   if (Notification.permission !== 'granted') return;
   const session = sessions.value.find(
     (entry) => entry.id === sessionId && resolveProjectIdForSession(entry.id) === projectId,
@@ -2557,20 +2563,13 @@ function showBrowserNotification(
 }
 
 function syncActiveSelectionToWorker() {
-  if (typeof document !== 'undefined' && document.hidden) {
-    ge.sendToWorker({
-      type: 'selection.active',
-      key: '',
-    });
-    return;
-  }
   ge.sendToWorker({
     type: 'selection.active',
-    key: selectedKey.value,
+    key: isWindowAttentive() ? selectedKey.value : '',
   });
 }
 
-function handleDocumentVisibilityChange() {
+function handleWindowAttentionChange() {
   syncActiveSelectionToWorker();
 }
 
@@ -6131,7 +6130,9 @@ onMounted(() => {
   window.addEventListener('pointerup', handlePointerUp);
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('storage', handleComposerDraftStorage);
-  document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
+  document.addEventListener('visibilitychange', handleWindowAttentionChange);
+  window.addEventListener('focus', handleWindowAttentionChange);
+  window.addEventListener('blur', handleWindowAttentionChange);
   updateFloatingExtentObserver();
   globalEventUnsubscribers.push(
     ge.on('connection.open', () => {
@@ -6327,7 +6328,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', handlePointerUp);
   window.removeEventListener('resize', handleWindowResize);
   window.removeEventListener('storage', handleComposerDraftStorage);
-  document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
+  document.removeEventListener('visibilitychange', handleWindowAttentionChange);
+  window.removeEventListener('focus', handleWindowAttentionChange);
+  window.removeEventListener('blur', handleWindowAttentionChange);
   floatingExtentResizeObserver?.disconnect();
   floatingExtentResizeObserver = null;
   floatingExtentObservedEl = null;
