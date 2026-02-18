@@ -344,9 +344,9 @@ function onResizeEnd(e: PointerEvent) {
       <button v-if="entry.closable" class="close-btn" @click.stop="onClose">×</button>
     </div>
     <div class="floating-window-body-wrapper">
-      <div 
-        class="floating-window-body" 
-        :class="scrollClass" 
+      <div
+        class="floating-window-body"
+        :class="scrollClass"
         ref="bodyEl"
         tabindex="-1"
         @click="onBodyClick"

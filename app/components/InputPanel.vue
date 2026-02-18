@@ -644,14 +644,6 @@ const modelValue = computed({
   set: (value) => emit('update:selected-model', value),
 });
 
-
-
-
-
-
-
-
-
 function findAgent(id: unknown): AgentOption | undefined {
   if (id == null) return undefined;
   return (props.agentOptions ?? []).find((a) => a.id === id);
@@ -690,8 +682,6 @@ const thinkingKeyValue = computed({
     emit('update:selected-thinking', choice?.value);
   },
 });
-
-
 
 function findThinkingChoice(key: unknown): ThinkingChoice | undefined {
   if (key == null) return undefined;

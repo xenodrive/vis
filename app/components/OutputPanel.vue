@@ -199,11 +199,7 @@ import {
 import MessageViewer from './MessageViewer.vue';
 import { renderWorkerHtml } from '../utils/workerRenderer';
 import { useMessages } from '../composables/useMessages';
-import type {
-  MessageAttachment,
-  MessageTokens,
-  MessageUsage,
-} from '../types/message';
+import type { MessageAttachment, MessageTokens, MessageUsage } from '../types/message';
 import type { MessageInfo, QuestionInfo, ReasoningPart, ToolPart } from '../types/sse';
 
 type DiffEntry = { file: string; diff: string; before?: string; after?: string };
@@ -287,8 +283,6 @@ function getThread(rootId: string): MessageInfo[] {
   return cachedThreads.value.get(rootId) ?? msg.getThread(rootId);
 }
 
-
-
 function getFinalAnswer(root: MessageInfo): MessageInfo | undefined {
   if (cachedFinalAnswers.value.has(root.id)) {
     return cachedFinalAnswers.value.get(root.id);
@@ -310,8 +304,6 @@ function getMessageAttachments(message?: MessageInfo): MessageAttachment[] {
   if (!message) return [];
   return msg.getImageAttachments(message.id) ?? [];
 }
-
-
 
 function getMessageError(message?: MessageInfo): { name: string; message: string } | null {
   if (!message) return null;
@@ -345,8 +337,6 @@ function getFinalAnswerContent(root: MessageInfo): string {
 function getAssistantMessages(root: MessageInfo): MessageInfo[] {
   return getThread(root.id).filter((msg) => msg.role === 'assistant' && hasTextContent(msg));
 }
-
-
 
 function hasAssistantMessages(root: MessageInfo): boolean {
   return getAssistantMessages(root).length > 0;
@@ -752,8 +742,6 @@ function getThreadAssistantRenderKeyById(rootId: string, answerId?: string): str
 function getThreadTransitionKey(root: MessageInfo): string {
   return getFinalAnswer(root)?.id ?? root.id;
 }
-
-
 
 function collectInitialRenderKeys(): Set<string> {
   const keys = new Set<string>();

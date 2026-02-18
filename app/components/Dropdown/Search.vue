@@ -2,15 +2,15 @@
   <div class="ui-dropdown-search" @click.stop>
     <slot name="before" />
     <input
-       autofocus
-       :value="modelValue"
-       type="text"
-       :placeholder="placeholder"
-       class="ui-dropdown-search-input"
-       @click.stop
-       @input="onInput"
-       @keydown="onKeydown"
-     />
+      autofocus
+      :value="modelValue"
+      type="text"
+      :placeholder="placeholder"
+      class="ui-dropdown-search-input"
+      @click.stop
+      @input="onInput"
+      @keydown="onKeydown"
+    />
     <slot name="after" />
   </div>
 </template>

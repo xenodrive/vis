@@ -111,7 +111,12 @@ export function createNotificationManager(
     for (const [key, entry] of Object.entries(data)) {
       const trimmedProjectId = entry.projectId.trim();
       const trimmedSessionId = entry.sessionId.trim();
-      if (!trimmedProjectId || !trimmedSessionId || !Array.isArray(entry.requestIds) || entry.requestIds.length === 0)
+      if (
+        !trimmedProjectId ||
+        !trimmedSessionId ||
+        !Array.isArray(entry.requestIds) ||
+        entry.requestIds.length === 0
+      )
         continue;
       next.set(key, {
         projectId: trimmedProjectId,

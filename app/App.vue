@@ -754,7 +754,7 @@ function collectAllSessionsByProject() {
     const list: SessionInfo[] = [];
     Object.values(project.sandboxes).forEach((sandbox) => {
       Object.values(sandbox.sessions).forEach((session) => {
-        list.push(toSessionInfo(project.id, sandbox.directory, session));
+        list.push(toSessionInfo(sandbox.directory, session));
       });
     });
     byProject[project.id] = list;
@@ -1270,13 +1270,6 @@ function replaceQuerySelection(projectId: string, sessionId: string) {
   window.history.replaceState({}, '', url.toString());
 }
 
-function buildComposerContextKey(projectId: string, sessionId: string) {
-  const normalizedProjectId = projectId.trim();
-  const normalizedSessionId = sessionId.trim();
-  if (!normalizedProjectId || !normalizedSessionId) return '';
-  return `${normalizedProjectId}:${normalizedSessionId}`;
-}
-
 function normalizeStoredAttachment(value: unknown): Attachment | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
@@ -1418,7 +1411,7 @@ function clearComposerInputState() {
 }
 
 function draftKeyForSelectedContext() {
-  return buildComposerContextKey(selectedProjectId.value, selectedSessionId.value);
+  return createSessionKey(selectedProjectId.value, selectedSessionId.value);
 }
 
 function applyComposerDraftToComposerState(draft: ComposerDraft, contextKey: string) {
@@ -1633,7 +1626,7 @@ function seedForkedSessionComposerDraft(
 ) {
   if (!forkedSession.id) return;
   const projectId = forkedSession.projectID || resolveProjectIdForSession(payload.sessionId);
-  const contextKey = buildComposerContextKey(projectId, forkedSession.id);
+  const contextKey = createSessionKey(projectId, forkedSession.id);
   if (!contextKey) return;
   const draft = buildComposerDraftFromUserMessage(payload);
   const existingDraft = readComposerDraft(contextKey);
@@ -2081,7 +2074,18 @@ async function deleteWorktree(directory: string) {
   try {
     await opencodeApi.deleteWorktree(projectDirectory.value, targetDir);
     if (normalizeDirectory(activeDirectory.value) === targetDir) {
-      selectedKey.value = { projectId: selectedProjectId.value, sessionId: '' };
+      const projectId = selectedProjectId.value.trim();
+      const candidates = (sessionsByProject.value[projectId] ?? []).filter((session) => {
+        if (session.parentID || session.time?.archived) return false;
+        const sessionDirectory = normalizeDirectory(session.directory || projectDirectory.value);
+        return sessionDirectory !== targetDir;
+      });
+      const nextSessionId = pickPreferredSessionId(candidates);
+      if (projectId && nextSessionId) {
+        selectedKey.value = createSessionKey(projectId, nextSessionId);
+      } else {
+        await createSessionInDirectory(baseDir, projectDirectory.value);
+      }
     }
   } catch (error) {
     worktreeError.value = `Worktree delete failed: ${toErrorMessage(error)}`;
@@ -2138,25 +2142,18 @@ function handleTopPanelSessionSelect(payload: {
   void switchSessionSelection(projectId, payload.sessionId);
 }
 
-function selectSessionByKey(projectId: string, sessionId: string) {
-  const normalizedProjectId = projectId.trim();
-  const normalizedSessionId = sessionId.trim();
-  if (!normalizedProjectId || !normalizedSessionId) return;
-  void switchSessionSelection(normalizedProjectId, normalizedSessionId);
-}
-
 function handleNotificationSessionSelect() {
   const queue = notificationSessionOrder.value.filter((key) => {
     const entry = serverState.notifications[key];
     return Boolean(entry && entry.requestIds.length > 0);
   });
   if (queue.length === 0) return;
-  const selectedKey = createSessionKey(selectedProjectId.value, selectedSessionId.value);
-  const nextKey = queue.find((key) => key !== selectedKey) ?? queue[0];
+  const currentKey = selectedKey.value;
+  const nextKey = queue.find((key) => key !== currentKey) ?? queue[0];
   if (!nextKey) return;
   const entry = serverState.notifications[nextKey];
   if (!entry) return;
-  selectSessionByKey(entry.projectId, entry.sessionId);
+  void switchSessionSelection(entry.projectId.trim(), entry.sessionId.trim());
 }
 
 async function deleteSession(sessionId: string) {
@@ -2166,13 +2163,21 @@ async function deleteSession(sessionId: string) {
   try {
     const directory = activeDirectory.value.trim();
     await opencodeApi.deleteSession(sessionId, directory || undefined);
-    if (selectedSessionId.value === sessionId) {
-      selectedKey.value = { projectId: selectedProjectId.value, sessionId: '' };
-    }
-    clearNotificationSession(selectedProjectId.value, sessionId);
+    notificationSessionOrder.value = notificationSessionOrder.value.filter(
+      (notificationKey) => notificationKey !== createSessionKey(selectedProjectId.value, sessionId),
+    );
     serverState.notifySessionRemoved(sessionId, selectedProjectId.value || undefined);
-    if (!selectedSessionId.value && pickPreferredSessionId(filteredSessions.value) === '') {
-      await createNewSession();
+    if (selectedSessionId.value === sessionId) {
+      const projectId = selectedProjectId.value.trim();
+      const candidates = filteredSessions.value.filter(
+        (session) => session.id !== sessionId && !session.time?.archived,
+      );
+      const nextSessionId = pickPreferredSessionId(candidates);
+      if (projectId && nextSessionId) {
+        selectedKey.value = createSessionKey(projectId, nextSessionId);
+      } else {
+        await createNewSession();
+      }
     }
   } catch (error) {
     sessionError.value = `Session delete failed: ${toErrorMessage(error)}`;
@@ -2194,10 +2199,16 @@ async function archiveSession(sessionId: string) {
       serverState.notifySessionMutated(data);
     }
     if (selectedSessionId.value === sessionId) {
-      selectedKey.value = { projectId: selectedProjectId.value, sessionId: '' };
-    }
-    if (!selectedSessionId.value && pickPreferredSessionId(filteredSessions.value) === '') {
-      await createNewSession();
+      const projectId = selectedProjectId.value.trim();
+      const candidates = filteredSessions.value.filter(
+        (session) => session.id !== sessionId && !session.time?.archived,
+      );
+      const nextSessionId = pickPreferredSessionId(candidates);
+      if (projectId && nextSessionId) {
+        selectedKey.value = createSessionKey(projectId, nextSessionId);
+      } else {
+        await createNewSession();
+      }
     }
   } catch (error) {
     sessionError.value = `Session archive failed: ${toErrorMessage(error)}`;
@@ -2504,12 +2515,6 @@ async function fetchPendingQuestions(directory?: string) {
   }
 }
 
-function clearNotificationSession(projectId: string, sessionId: string) {
-  const key = createSessionKey(projectId, sessionId);
-  if (!key) return;
-  notificationSessionOrder.value = notificationSessionOrder.value.filter((id) => id !== key);
-}
-
 function ensureBrowserNotificationPermission() {
   if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
   if (Notification.permission !== 'default') return;
@@ -2546,7 +2551,7 @@ function showBrowserNotification(
   });
   notification.onclick = () => {
     window.focus();
-    selectSessionByKey(projectId, sessionId);
+    void switchSessionSelection(projectId.trim(), sessionId.trim());
     notification.close();
   };
 }
@@ -2555,17 +2560,13 @@ function syncActiveSelectionToWorker() {
   if (typeof document !== 'undefined' && document.hidden) {
     ge.sendToWorker({
       type: 'selection.active',
-      projectId: '',
-      sessionId: '',
+      key: '',
     });
     return;
   }
-  const projectId = selectedProjectId.value.trim();
-  const sessionId = selectedSessionId.value.trim();
   ge.sendToWorker({
     type: 'selection.active',
-    projectId,
-    sessionId,
+    key: selectedKey.value,
   });
 }
 
@@ -3535,7 +3536,7 @@ async function sendMessage() {
       sendStatus.value = 'No session selected.';
       return;
     }
-    selectedKey.value = { projectId: selectedProjectId.value, sessionId: fallback.id };
+    selectedKey.value = createSessionKey(selectedProjectId.value, fallback.id);
     sessionId = fallback.id;
   }
   const slash = hasText ? parseSlashCommand(text) : null;
@@ -3735,7 +3736,19 @@ watch(
     // pd/ad が変わったが sid も同時に変わった場合 = 意図的な一括選択 → クリアしない
     // pd/ad だけ変わった場合 = ディレクトリ切り替え → sid をクリア
     if (!sidChanged) {
-      selectedKey.value = { projectId: pd || selectedProjectId.value, sessionId: '' };
+      const nextProjectId = (pd || selectedProjectId.value).trim();
+      const nextDirectory = ad.trim();
+      const candidates = (sessionsByProject.value[nextProjectId] ?? []).filter((session) => {
+        if (session.parentID || session.time?.archived) return false;
+        if (!nextDirectory) return true;
+        return !session.directory || session.directory === nextDirectory;
+      });
+      const nextSessionId = pickPreferredSessionId(candidates);
+      if (nextProjectId && nextSessionId) {
+        selectedKey.value = createSessionKey(nextProjectId, nextSessionId);
+      } else if (nextDirectory) {
+        void createSessionInDirectory(nextDirectory, pd || undefined);
+      }
     }
 
     if (adChanged && ad) {
@@ -3754,7 +3767,7 @@ watch(
     const preferredId = pickPreferredSessionId(filteredSessions.value);
     if (!selectedSessionId.value) {
       if (preferredId) {
-        selectedKey.value = { projectId: selectedProjectId.value, sessionId: preferredId };
+        selectedKey.value = createSessionKey(selectedProjectId.value, preferredId);
       }
       return;
     }
@@ -3763,7 +3776,7 @@ watch(
     );
     if (!isValid) {
       if (preferredId) {
-        selectedKey.value = { projectId: selectedProjectId.value, sessionId: preferredId };
+        selectedKey.value = createSessionKey(selectedProjectId.value, preferredId);
       }
     }
   },
@@ -3815,11 +3828,9 @@ async function reloadSelectedSessionState() {
 }
 
 watch(
-  [selectedProjectId, selectedSessionId],
-  ([projectId, sessionId], previous) => {
-    const [prevProjectId, prevSessionId] = previous ?? ['', ''];
-    const contextKey = buildComposerContextKey(projectId, sessionId);
-    const prevContextKey = buildComposerContextKey(prevProjectId ?? '', prevSessionId ?? '');
+  selectedKey,
+  (contextKey, previousKey) => {
+    const prevContextKey = previousKey ?? '';
     if (contextKey === prevContextKey) return;
     clearComposerInputState();
     nextTick(() => {
@@ -3962,7 +3973,9 @@ const ge = useGlobalEvents(credentials);
 ge.setWorkerMessageHandler(serverState.handleStateMessage);
 serverState.setWorkerSender(ge.sendToWorker);
 serverState.setNotificationShowHandler((message) => {
-  showBrowserNotification(message.projectId, message.sessionId, message.kind);
+  const parsed = parseSessionKey(message.key);
+  if (!parsed) return;
+  showBrowserNotification(parsed.projectId, parsed.sessionId, message.kind);
 });
 const deltaAccumulator = useDeltaAccumulator();
 deltaAccumulator.listen(ge);
@@ -3976,7 +3989,7 @@ subagentWindows.bindScope(sessionScope);
 watch(selectedSessionId, reloadSelectedSessionState, { immediate: true });
 
 watch(
-  [selectedProjectId, selectedSessionId],
+  selectedKey,
   () => {
     syncActiveSelectionToWorker();
   },
@@ -6223,12 +6236,24 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('session.deleted', ({ info }) => {
+    ge.on('session.deleted', async ({ info }) => {
       const sessionInfo = info as SessionInfo;
       const projectId = resolveProjectIdForDirectory(sessionInfo.directory);
-      clearNotificationSession(projectId, sessionInfo.id);
+      notificationSessionOrder.value = notificationSessionOrder.value.filter(
+        (notificationKey) => notificationKey !== createSessionKey(projectId, sessionInfo.id),
+      );
       if (selectedSessionId.value === sessionInfo.id) {
-        selectedKey.value = { projectId: selectedProjectId.value, sessionId: '' };
+        const nextProjectId = (projectId || selectedProjectId.value).trim();
+        const candidates = (sessionsByProject.value[nextProjectId] ?? []).filter(
+          (session) =>
+            session.id !== sessionInfo.id && !session.parentID && !session.time?.archived,
+        );
+        const nextSessionId = pickPreferredSessionId(candidates);
+        if (nextProjectId && nextSessionId) {
+          selectedKey.value = createSessionKey(nextProjectId, nextSessionId);
+        } else if (sessionInfo.directory) {
+          await createSessionInDirectory(sessionInfo.directory, sessionInfo.directory);
+        }
       }
     }),
   );
