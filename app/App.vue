@@ -2228,7 +2228,7 @@ async function handleForkMessage(payload: { sessionId: string; messageId: string
     if (data && typeof data.id === 'string') {
       serverState.notifySessionMutated(data);
       seedForkedSessionComposerDraft(payload, data);
-      await switchSessionSelection(data.projectID || selectedProjectId.value, data.id);
+      await switchSessionSelection(selectedProjectId.value, data.id);
     }
     sendStatus.value = 'Forked.';
   } catch (error) {
