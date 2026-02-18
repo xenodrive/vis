@@ -14,6 +14,7 @@ data: {"directory":"/abs/or/relative/path","payload":{"type":"...","properties":
 Common envelope fields:
 
 - `directory`: workspace directory the event belongs to.
+  - This field can be omitted for server-level events such as `server.connected` and `server.heartbeat`.
 - `payload.type`: event name.
 - `payload.properties`: event-specific object.
 
@@ -123,6 +124,7 @@ Below lists each `payload.type` and its `properties` fields.
   - `messageID: string`
 - `project.updated`
   - `ProjectInfo`
+  - `properties` is the `ProjectInfo` object itself (no `info` wrapper).
 - `worktree.ready`
   - `name: string`
   - `branch: string`

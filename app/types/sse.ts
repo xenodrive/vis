@@ -107,6 +107,7 @@ export type FileDiff = {
 export type SessionInfo = {
   id: string;
   slug: string;
+  projectID: string;
   directory: string;
   parentID?: string;
   summary?: {
@@ -528,3 +529,37 @@ export type GlobalEventMap = {
   'connection.error': ConnectionErrorPacket;
   'connection.reconnected': ConnectionReconnectedPacket;
 };
+
+type SsePacketByType<K extends keyof GlobalEventMap> = {
+  directory: string;
+  payload: {
+    type: K;
+    properties: GlobalEventMap[K];
+  };
+};
+
+export type KnownSsePacket = {
+  [K in keyof GlobalEventMap]: SsePacketByType<K>;
+}[keyof GlobalEventMap];
+
+export type WorkerStateEventMap = Pick<
+  GlobalEventMap,
+  | 'session.created'
+  | 'session.updated'
+  | 'session.deleted'
+  | 'session.status'
+  | 'project.updated'
+  | 'vcs.branch.updated'
+  | 'permission.asked'
+  | 'question.asked'
+  | 'permission.replied'
+  | 'question.replied'
+  | 'question.rejected'
+  | 'worktree.ready'
+>;
+
+export type WorkerStateEventType = keyof WorkerStateEventMap;
+
+export type WorkerStatePacket = {
+  [K in WorkerStateEventType]: SsePacketByType<K>;
+}[WorkerStateEventType];

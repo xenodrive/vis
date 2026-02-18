@@ -1,4 +1,13 @@
 import type { TabToWorkerMessage, WorkerToTabMessage } from '../types/sse-worker';
+import type {
+  ProjectInfo,
+  SessionInfo,
+  SessionStatusInfo,
+  SsePacket,
+  WorkerStateEventMap,
+  WorkerStateEventType,
+  WorkerStatePacket,
+} from '../types/sse';
 import { createNotificationManager } from '../utils/notificationManager';
 import {
   getCurrentProject,
@@ -6,6 +15,7 @@ import {
   getVcsInfo,
   listProjects,
   listSessions,
+  listWorktrees,
   setAuthorization,
   setBaseUrl,
 } from '../utils/opencode';
@@ -69,11 +79,6 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === 'string');
-}
-
 function asObjectArray<T>(value: unknown): T[] {
   if (!Array.isArray(value)) return [];
   return value as T[];
@@ -85,22 +90,464 @@ function asStatusMap(value: unknown): Record<string, { type?: string }> {
   return record as Record<string, { type?: string }>;
 }
 
-function getPacketPayload(packet: { payload?: unknown }) {
-  return asRecord(packet.payload);
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function getPacketInfo(payload: Record<string, unknown>) {
-  const properties = asRecord(payload.properties);
-  const infoFromProperties = properties ? asRecord(properties.info) : null;
-  const directInfo = asRecord(payload.info);
-  return infoFromProperties ?? directInfo;
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
-function getRequestInfo(info: Record<string, unknown>) {
-  return {
-    requestId: asString(info.requestID) ?? '',
-    sessionId: asString(info.sessionID) ?? '',
-  };
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const values: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') return null;
+    values.push(item);
+  }
+  return values;
+}
+
+function asStringMatrix(value: unknown): string[][] | null {
+  if (!Array.isArray(value)) return null;
+  const rows: string[][] = [];
+  for (const row of value) {
+    const parsed = asStringArray(row);
+    if (!parsed) return null;
+    rows.push(parsed);
+  }
+  return rows;
+}
+
+function isPermissionRule(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  const action = asString(record.action);
+  return (
+    Boolean(asString(record.permission)) &&
+    Boolean(asString(record.pattern)) &&
+    (action === 'allow' || action === 'deny' || action === 'ask')
+  );
+}
+
+function isFileDiff(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  return (
+    Boolean(asString(record.file)) &&
+    typeof record.before === 'string' &&
+    typeof record.after === 'string' &&
+    asNumber(record.additions) !== undefined &&
+    asNumber(record.deletions) !== undefined
+  );
+}
+
+function isSessionInfo(value: unknown): value is SessionInfo {
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (
+    !asString(record.id) ||
+    !asString(record.slug) ||
+    !asString(record.projectID) ||
+    !asString(record.directory) ||
+    !asString(record.title) ||
+    !asString(record.version)
+  ) {
+    return false;
+  }
+
+  const time = asRecord(record.time);
+  if (!time || asNumber(time.created) === undefined || asNumber(time.updated) === undefined) {
+    return false;
+  }
+  if (time.compacting !== undefined && asNumber(time.compacting) === undefined) {
+    return false;
+  }
+  if (time.archived !== undefined && asNumber(time.archived) === undefined) {
+    return false;
+  }
+
+  if (record.parentID !== undefined && !asString(record.parentID)) {
+    return false;
+  }
+
+  if (record.summary !== undefined) {
+    const summary = asRecord(record.summary);
+    if (!summary) return false;
+    if (
+      asNumber(summary.additions) === undefined ||
+      asNumber(summary.deletions) === undefined ||
+      asNumber(summary.files) === undefined
+    ) {
+      return false;
+    }
+    if (summary.diffs !== undefined) {
+      if (!Array.isArray(summary.diffs)) return false;
+      if (!summary.diffs.every((diff) => isFileDiff(diff))) return false;
+    }
+  }
+
+  if (record.share !== undefined) {
+    const share = asRecord(record.share);
+    if (!share || !asString(share.url)) return false;
+  }
+
+  if (record.permission !== undefined) {
+    if (!Array.isArray(record.permission)) return false;
+    if (!record.permission.every((entry) => isPermissionRule(entry))) return false;
+  }
+
+  if (record.revert !== undefined) {
+    const revert = asRecord(record.revert);
+    if (!revert || !asString(revert.messageID)) return false;
+    if (revert.partID !== undefined && !asString(revert.partID)) return false;
+    if (revert.snapshot !== undefined && !asString(revert.snapshot)) return false;
+    if (revert.diff !== undefined && !asString(revert.diff)) return false;
+  }
+
+  return true;
+}
+
+function isSessionEventProperties(value: unknown): value is WorkerStateEventMap['session.created'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return isSessionInfo(record.info);
+}
+
+function isSessionStatusInfo(value: unknown): value is SessionStatusInfo {
+  const record = asRecord(value);
+  if (!record) return false;
+  const type = asString(record.type);
+  if (type === 'idle' || type === 'busy') return true;
+  if (type !== 'retry') return false;
+  return (
+    asNumber(record.attempt) !== undefined &&
+    asString(record.message) !== undefined &&
+    asNumber(record.next) !== undefined
+  );
+}
+
+function isSessionStatusProperties(value: unknown): value is WorkerStateEventMap['session.status'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return asString(record.sessionID) !== undefined && isSessionStatusInfo(record.status);
+}
+
+function isProjectInfo(value: unknown): value is ProjectInfo {
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (!asString(record.id) || !asString(record.worktree)) {
+    return false;
+  }
+
+  if (record.vcs !== undefined && record.vcs !== 'git') {
+    return false;
+  }
+
+  if (record.name !== undefined && !asString(record.name)) {
+    return false;
+  }
+
+  const time = asRecord(record.time);
+  if (!time || asNumber(time.created) === undefined || asNumber(time.updated) === undefined) {
+    return false;
+  }
+  if (time.initialized !== undefined && asNumber(time.initialized) === undefined) {
+    return false;
+  }
+
+  const sandboxes = asStringArray(record.sandboxes);
+  if (!sandboxes) return false;
+
+  if (record.icon !== undefined) {
+    const icon = asRecord(record.icon);
+    if (!icon) return false;
+    if (icon.url !== undefined && !asString(icon.url)) return false;
+    if (icon.override !== undefined && !asString(icon.override)) return false;
+    if (icon.color !== undefined && !asString(icon.color)) return false;
+  }
+
+  if (record.commands !== undefined) {
+    const commands = asRecord(record.commands);
+    if (!commands) return false;
+    if (commands.start !== undefined && !asString(commands.start)) return false;
+  }
+
+  return true;
+}
+
+function isVcsBranchUpdatedProperties(
+  value: unknown,
+): value is WorkerStateEventMap['vcs.branch.updated'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return record.branch === undefined || asString(record.branch) !== undefined;
+}
+
+function isPermissionAskedProperties(
+  value: unknown,
+): value is WorkerStateEventMap['permission.asked'] {
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (
+    !asString(record.id) ||
+    !asString(record.sessionID) ||
+    !asString(record.permission) ||
+    !asStringArray(record.patterns) ||
+    !asRecord(record.metadata) ||
+    !asStringArray(record.always)
+  ) {
+    return false;
+  }
+
+  if (record.tool !== undefined) {
+    const tool = asRecord(record.tool);
+    if (!tool) return false;
+    if (!asString(tool.messageID) || !asString(tool.callID)) return false;
+  }
+
+  return true;
+}
+
+function isQuestionOption(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  return Boolean(asString(record.label) && asString(record.description));
+}
+
+function isQuestionInfo(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (!asString(record.question) || !asString(record.header)) {
+    return false;
+  }
+
+  if (!Array.isArray(record.options) || !record.options.every((option) => isQuestionOption(option))) {
+    return false;
+  }
+
+  if (record.multiple !== undefined && asBoolean(record.multiple) === undefined) {
+    return false;
+  }
+  if (record.custom !== undefined && asBoolean(record.custom) === undefined) {
+    return false;
+  }
+
+  return true;
+}
+
+function isQuestionAskedProperties(value: unknown): value is WorkerStateEventMap['question.asked'] {
+  const record = asRecord(value);
+  if (!record) return false;
+
+  if (!asString(record.id) || !asString(record.sessionID)) {
+    return false;
+  }
+
+  if (!Array.isArray(record.questions) || !record.questions.every((question) => isQuestionInfo(question))) {
+    return false;
+  }
+
+  if (record.tool !== undefined) {
+    const tool = asRecord(record.tool);
+    if (!tool) return false;
+    if (!asString(tool.messageID) || !asString(tool.callID)) return false;
+  }
+
+  return true;
+}
+
+function isPermissionRepliedProperties(
+  value: unknown,
+): value is WorkerStateEventMap['permission.replied'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  const reply = asString(record.reply);
+  return (
+    asString(record.sessionID) !== undefined &&
+    asString(record.requestID) !== undefined &&
+    (reply === 'once' || reply === 'always' || reply === 'reject')
+  );
+}
+
+function isQuestionRepliedProperties(
+  value: unknown,
+): value is WorkerStateEventMap['question.replied'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return (
+    asString(record.sessionID) !== undefined &&
+    asString(record.requestID) !== undefined &&
+    asStringMatrix(record.answers) !== null
+  );
+}
+
+function isQuestionRejectedProperties(
+  value: unknown,
+): value is WorkerStateEventMap['question.rejected'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return asString(record.sessionID) !== undefined && asString(record.requestID) !== undefined;
+}
+
+function isWorktreeReadyProperties(value: unknown): value is WorkerStateEventMap['worktree.ready'] {
+  const record = asRecord(value);
+  if (!record) return false;
+  return asString(record.name) !== undefined && asString(record.branch) !== undefined;
+}
+
+const WORKER_STATE_EVENT_TYPES = [
+  'session.created',
+  'session.updated',
+  'session.deleted',
+  'session.status',
+  'project.updated',
+  'vcs.branch.updated',
+  'permission.asked',
+  'question.asked',
+  'permission.replied',
+  'question.replied',
+  'question.rejected',
+  'worktree.ready',
+] as const satisfies readonly WorkerStateEventType[];
+
+const WORKER_STATE_EVENT_TYPE_SET = new Set<string>(WORKER_STATE_EVENT_TYPES);
+
+function isWorkerStateEventType(value: string): value is WorkerStateEventType {
+  return WORKER_STATE_EVENT_TYPE_SET.has(value);
+}
+
+function parseWorkerStatePacket(packet: SsePacket): WorkerStatePacket | null {
+  const packetType = packet.payload.type;
+  if (!isWorkerStateEventType(packetType)) return null;
+
+  const properties = packet.payload.properties;
+  switch (packetType) {
+    case 'session.created': {
+      if (!isSessionEventProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'session.created',
+          properties,
+        },
+      };
+    }
+    case 'session.updated': {
+      if (!isSessionEventProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'session.updated',
+          properties,
+        },
+      };
+    }
+    case 'session.deleted': {
+      if (!isSessionEventProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'session.deleted',
+          properties,
+        },
+      };
+    }
+    case 'session.status': {
+      if (!isSessionStatusProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'session.status',
+          properties,
+        },
+      };
+    }
+    case 'project.updated': {
+      if (!isProjectInfo(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'project.updated',
+          properties,
+        },
+      };
+    }
+    case 'vcs.branch.updated': {
+      if (!isVcsBranchUpdatedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'vcs.branch.updated',
+          properties,
+        },
+      };
+    }
+    case 'permission.asked': {
+      if (!isPermissionAskedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'permission.asked',
+          properties,
+        },
+      };
+    }
+    case 'question.asked': {
+      if (!isQuestionAskedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'question.asked',
+          properties,
+        },
+      };
+    }
+    case 'permission.replied': {
+      if (!isPermissionRepliedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'permission.replied',
+          properties,
+        },
+      };
+    }
+    case 'question.replied': {
+      if (!isQuestionRepliedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'question.replied',
+          properties,
+        },
+      };
+    }
+    case 'question.rejected': {
+      if (!isQuestionRejectedProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'question.rejected',
+          properties,
+        },
+      };
+    }
+    case 'worktree.ready': {
+      if (!isWorktreeReadyProperties(properties)) return null;
+      return {
+        directory: packet.directory,
+        payload: {
+          type: 'worktree.ready',
+          properties,
+        },
+      };
+    }
+  }
 }
 
 function queueOpencodeTask<T>(state: ConnectionState, task: () => Promise<T>): Promise<T> {
@@ -167,27 +614,25 @@ function emitNotificationShow(
 
 async function resolveUnknownSessionDirectory(
   state: ConnectionState,
-  info: Record<string, unknown>,
+  info: SessionInfo,
 ) {
-  const directory = normalizeDirectory(asString(info.directory) ?? '');
+  const directory = normalizeDirectory(info.directory);
   if (!directory) return;
 
   const projectInfo = await queueOpencodeTask(state, async () => {
     const raw = await getCurrentProject(directory);
-    return asRecord(raw);
+    return isProjectInfo(raw) ? raw : null;
   }).catch(() => null);
   if (!projectInfo) return;
 
-  const worktree = normalizeDirectory(asString(projectInfo.worktree) ?? '');
+  const worktree = normalizeDirectory(projectInfo.worktree);
   if (!worktree) return;
 
   const knownProjectId = state.stateBuilder.resolveProjectIdForDirectory(worktree);
   if (knownProjectId) {
     const changedProjectId = state.stateBuilder.registerSandboxDirectory(knownProjectId, directory);
     emitProjectUpdated(state, changedProjectId);
-    const changedSessionProjectId = state.stateBuilder.applySessionMutated(
-      info as Parameters<typeof state.stateBuilder.applySessionMutated>[0],
-    );
+    const changedSessionProjectId = state.stateBuilder.applySessionMutated(info);
     emitProjectUpdated(state, changedSessionProjectId);
     return;
   }
@@ -196,141 +641,149 @@ async function resolveUnknownSessionDirectory(
     return;
   }
 
-  const changedProjectId = state.stateBuilder.processProjectUpdated(
-    projectInfo as Parameters<typeof state.stateBuilder.processProjectUpdated>[0],
-  );
+  const changedProjectId = state.stateBuilder.processProjectUpdated(projectInfo);
   emitProjectUpdated(state, changedProjectId);
 
-  const changedSessionProjectId = state.stateBuilder.applySessionMutated(
-    info as Parameters<typeof state.stateBuilder.applySessionMutated>[0],
-  );
+  const changedSessionProjectId = state.stateBuilder.applySessionMutated(info);
   emitProjectUpdated(state, changedSessionProjectId);
 }
 
-function handleStatePacket(
-  state: ConnectionState,
-  packet: { directory?: unknown; payload?: unknown },
-) {
-  const payload = getPacketPayload(packet);
-  if (!payload) return;
-  const packetType = asString(payload.type);
-  if (!packetType) return;
+function handleStatePacket(state: ConnectionState, packet: SsePacket) {
+  const parsedPacket = parseWorkerStatePacket(packet);
+  if (!parsedPacket) return;
 
-  const packetDirectory = normalizeDirectory(asString(packet.directory) ?? '');
-  const properties = asRecord(payload.properties);
-  const info = getPacketInfo(payload);
+  const packetType = parsedPacket.payload.type;
+  const packetDirectory = normalizeDirectory(parsedPacket.directory);
   let projectId: string | null = null;
   let notificationsChanged = false;
 
-  if (packetType === 'session.created' && info) {
-    projectId = state.stateBuilder.processSessionCreated(
-      info as unknown as Parameters<typeof state.stateBuilder.processSessionCreated>[0],
-    );
-    if (!projectId) {
-      void resolveUnknownSessionDirectory(state, info);
+  switch (packetType) {
+    case 'session.created': {
+      const info = parsedPacket.payload.properties.info;
+      projectId = state.stateBuilder.processSessionCreated(info);
+      if (!projectId) {
+        void resolveUnknownSessionDirectory(state, info);
+      }
+      break;
     }
-  }
-
-  if (packetType === 'session.updated' && info) {
-    projectId = state.stateBuilder.processSessionUpdated(
-      info as unknown as Parameters<typeof state.stateBuilder.processSessionUpdated>[0],
-    );
-    if (!projectId) {
-      void resolveUnknownSessionDirectory(state, info);
+    case 'session.updated': {
+      const info = parsedPacket.payload.properties.info;
+      projectId = state.stateBuilder.processSessionUpdated(info);
+      if (!projectId) {
+        void resolveUnknownSessionDirectory(state, info);
+      }
+      break;
     }
-  }
-
-  if (packetType === 'session.deleted' && info) {
-    const sessionId = asString(info.id) ?? '';
-    const deletedDirectory = normalizeDirectory(asString(info.directory) ?? '');
-    const deletedProjectId = state.stateBuilder.resolveProjectIdForDirectory(deletedDirectory);
-    projectId = state.stateBuilder.processSessionDeleted(sessionId, deletedProjectId);
-    if (deletedProjectId && sessionId) {
-      const cleared = state.notificationManager.clearSession(deletedProjectId, sessionId);
-      notificationsChanged = cleared || notificationsChanged;
+    case 'session.deleted': {
+      const info = parsedPacket.payload.properties.info;
+      const sessionId = info.id;
+      const deletedDirectory = normalizeDirectory(info.directory);
+      const deletedProjectId = state.stateBuilder.resolveProjectIdForDirectory(deletedDirectory);
+      projectId = state.stateBuilder.processSessionDeleted(sessionId, deletedProjectId);
+      if (deletedProjectId) {
+        const cleared = state.notificationManager.clearSession(deletedProjectId, sessionId);
+        notificationsChanged = cleared || notificationsChanged;
+      }
+      break;
     }
-  }
+    case 'session.status': {
+      const sessionId = parsedPacket.payload.properties.sessionID;
+      const status = parsedPacket.payload.properties.status.type;
+      const statusProjectId = state.stateBuilder.resolveProjectIdForDirectory(packetDirectory);
+      if (statusProjectId) {
+        projectId = state.stateBuilder.processSessionStatus(sessionId, status, statusProjectId);
+        const rootSessionId = state.stateBuilder.resolveRootSessionIdForProject(
+          statusProjectId,
+          sessionId,
+        );
+        if (rootSessionId) {
+          const idleRequestId = `idle:${statusProjectId}:${rootSessionId}`;
+          const treeIdle = state.stateBuilder.isSessionTreeIdle(statusProjectId, rootSessionId);
 
-  if (packetType === 'session.status' && properties) {
-    const sessionId = asString(properties.sessionID) ?? '';
-    const status = asString(asRecord(properties.status)?.type) ?? '';
-    const statusProjectId = state.stateBuilder.resolveProjectIdForDirectory(packetDirectory);
-    if (statusProjectId) {
-      projectId = state.stateBuilder.processSessionStatus(sessionId, status, statusProjectId);
-      const rootSessionId = state.stateBuilder.resolveRootSessionIdForProject(
-        statusProjectId,
-        sessionId,
-      );
-      if (rootSessionId) {
-        const idleRequestId = `idle:${statusProjectId}:${rootSessionId}`;
-        const treeIdle = state.stateBuilder.isSessionTreeIdle(statusProjectId, rootSessionId);
-
-        if (!treeIdle) {
-          notificationsChanged =
-            state.notificationManager.removeNotification(idleRequestId) || notificationsChanged;
-        } else if (!shouldSuppressIdleNotification(state, statusProjectId, rootSessionId)) {
-          const added = state.notificationManager.addNotification(
-            statusProjectId,
-            rootSessionId,
-            idleRequestId,
-          );
-          notificationsChanged = added || notificationsChanged;
-          if (added) {
-            emitNotificationShow(state, createSessionKey(statusProjectId, rootSessionId), 'idle');
+          if (!treeIdle) {
+            notificationsChanged =
+              state.notificationManager.removeNotification(idleRequestId) || notificationsChanged;
+          } else if (!shouldSuppressIdleNotification(state, statusProjectId, rootSessionId)) {
+            const added = state.notificationManager.addNotification(
+              statusProjectId,
+              rootSessionId,
+              idleRequestId,
+            );
+            notificationsChanged = added || notificationsChanged;
+            if (added) {
+              emitNotificationShow(state, createSessionKey(statusProjectId, rootSessionId), 'idle');
+            }
           }
         }
       }
+      break;
     }
-  }
-
-  if (packetType === 'project.updated' && info) {
-    projectId = state.stateBuilder.processProjectUpdated(
-      info as Parameters<typeof state.stateBuilder.processProjectUpdated>[0],
-    );
-  }
-
-  if (packetType === 'vcs.branch.updated' && properties) {
-    const directory = packetDirectory;
-    const branch = asString(properties.branch) ?? '';
-    projectId = state.stateBuilder.processVcsBranchUpdated(directory, branch);
-  }
-
-  if ((packetType === 'permission.asked' || packetType === 'question.asked') && info) {
-    const request = getRequestInfo(info);
-    const requestProjectId = state.stateBuilder.resolveProjectIdForDirectory(packetDirectory);
-    if (requestProjectId && request.sessionId && request.requestId) {
-      const added = state.notificationManager.addNotification(
-        requestProjectId,
-        request.sessionId,
-        request.requestId,
-      );
-      notificationsChanged = added || notificationsChanged;
-      if (added) {
-        emitNotificationShow(
-          state,
-          createSessionKey(requestProjectId, request.sessionId),
-          packetType === 'permission.asked' ? 'permission' : 'question',
+    case 'project.updated': {
+      projectId = state.stateBuilder.processProjectUpdated(parsedPacket.payload.properties);
+      break;
+    }
+    case 'vcs.branch.updated': {
+      const branch = parsedPacket.payload.properties.branch ?? '';
+      projectId = state.stateBuilder.processVcsBranchUpdated(packetDirectory, branch);
+      break;
+    }
+    case 'permission.asked': {
+      const request = parsedPacket.payload.properties;
+      const requestProjectId = state.stateBuilder.resolveProjectIdForDirectory(packetDirectory);
+      if (requestProjectId) {
+        const added = state.notificationManager.addNotification(
+          requestProjectId,
+          request.sessionID,
+          request.id,
         );
+        notificationsChanged = added || notificationsChanged;
+        if (added) {
+          emitNotificationShow(
+            state,
+            createSessionKey(requestProjectId, request.sessionID),
+            'permission',
+          );
+        }
       }
+      break;
     }
-  }
-
-  if (
-    (packetType === 'permission.replied' ||
-      packetType === 'question.replied' ||
-      packetType === 'question.rejected') &&
-    info
-  ) {
-    const request = getRequestInfo(info);
-    notificationsChanged =
-      state.notificationManager.removeNotification(request.requestId) || notificationsChanged;
-  }
-
-  if (packetType === 'worktree.ready') {
-    const readyDirectory = packetDirectory;
-    const readyBranch = asString(properties?.branch) ?? asString(info?.branch) ?? '';
-    projectId =
-      state.stateBuilder.processVcsBranchUpdated(readyDirectory, readyBranch) || projectId;
+    case 'question.asked': {
+      const request = parsedPacket.payload.properties;
+      const requestProjectId = state.stateBuilder.resolveProjectIdForDirectory(packetDirectory);
+      if (requestProjectId) {
+        const added = state.notificationManager.addNotification(
+          requestProjectId,
+          request.sessionID,
+          request.id,
+        );
+        notificationsChanged = added || notificationsChanged;
+        if (added) {
+          emitNotificationShow(
+            state,
+            createSessionKey(requestProjectId, request.sessionID),
+            'question',
+          );
+        }
+      }
+      break;
+    }
+    case 'permission.replied':
+    case 'question.replied':
+    case 'question.rejected': {
+      const requestId = parsedPacket.payload.properties.requestID;
+      notificationsChanged =
+        state.notificationManager.removeNotification(requestId) || notificationsChanged;
+      break;
+    }
+    case 'worktree.ready': {
+      const readyBranch = parsedPacket.payload.properties.branch;
+      projectId = state.stateBuilder.processVcsBranchUpdated(packetDirectory, readyBranch) || projectId;
+      break;
+    }
+    default: {
+      const _never: never = packetType;
+      return _never;
+    }
   }
 
   emitProjectUpdated(state, projectId);
@@ -355,11 +808,6 @@ async function bootstrapState(state: ConnectionState): Promise<void> {
       if (worktree) {
         worktreeSet.add(worktree);
       }
-      asStringArray(project.sandboxes).forEach((entry) => {
-        const normalized = normalizeDirectory(entry);
-        if (!normalized) return;
-        sandboxSet.add(normalized);
-      });
     });
 
     const worktreeToProjectId = new Map<string, string>();
@@ -392,27 +840,24 @@ async function bootstrapState(state: ConnectionState): Promise<void> {
         const current = await fetchCurrentProject(directory).catch(() => null);
         if (!current) return;
 
-        builder.processProjectUpdated(
-          current.project as Parameters<typeof builder.processProjectUpdated>[0],
+        builder.processProjectUpdated({
+            ...current.project,
+            sandboxes: [] as string[],
+          } as Parameters<typeof builder.processProjectUpdated>[0],
         );
         worktreeToProjectId.set(current.worktree, current.projectId);
 
         await syncDirectoryState(directory, current.projectId);
-      }),
-    );
 
-    await Promise.all(
-      Array.from(sandboxSet).map(async (directory) => {
-        const current = await fetchCurrentProject(directory).catch(() => null);
-        if (!current) return;
+        const sandboxes = asObjectArray<string>(
+          await listWorktrees(directory).catch(() => []),
+        );
 
-        const parentProjectId = worktreeToProjectId.get(current.worktree);
-        if (!parentProjectId) {
-          return;
-        }
-
-        builder.registerSandboxDirectory(parentProjectId, directory);
-        await syncDirectoryState(directory, parentProjectId);
+        sandboxes.forEach((directory) => {
+          builder.registerSandboxDirectory(current.projectId, directory);
+          syncDirectoryState(directory, current.projectId);
+          sandboxSet.add(directory);
+        });
       }),
     );
 

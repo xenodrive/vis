@@ -113,6 +113,13 @@ export function createStateBuilder() {
   function indexProjectDirectories(project: ProjectState) {
     const projectId = project.id;
     if (!projectId) return;
+
+    for (const [directory, id] of projectIdByDirectory) {
+      if (id === projectId) {
+        projectIdByDirectory.delete(directory);
+      }
+    }
+
     const root = normalizeDirectory(project.worktree);
     if (root) projectIdByDirectory.set(root, projectId);
     Object.keys(project.sandboxes).forEach((directory) => {
@@ -530,6 +537,14 @@ export function createStateBuilder() {
       if (!sandbox.rootSessions) sandbox.rootSessions = [];
       if (!sandbox.sessions) sandbox.sessions = {};
     });
+
+
+    for (const directory of Object.keys(target.sandboxes)) {
+      if (!directories.has(directory)) {
+        delete target.sandboxes[directory];
+        changed = true;
+      }
+    }
 
     indexProjectDirectories(target);
     return changed;
