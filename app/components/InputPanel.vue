@@ -12,12 +12,27 @@
         <template #default>
           <div class="dropdown-list">
             <DropdownItem v-for="(entry, i) in userHistory" :key="i" :value="entry">
-              <div
-                class="history-item"
-                :style="{ borderLeftColor: entry.agentColor ? `${entry.agentColor}99` : '#334155' }"
-                :title="entry.text"
-              >
+              <div class="history-item" :style="historyEntryStyle(entry)" :title="entry.text">
                 <div class="history-item-text">{{ entry.text }}</div>
+                <div v-if="hasHistoryEntryTarget(entry)" class="history-item-target">
+                  <span
+                    v-if="entry.agent"
+                    class="history-target-agent"
+                    :style="historyEntryAgentStyle(entry)"
+                  >
+                    {{ entry.agent }}
+                  </span>
+                  <span v-if="historyEntryModelDisplayName(entry)" class="history-target-model">
+                    {{ historyEntryModelDisplayName(entry) }}
+                  </span>
+                  <span v-if="historyEntryProviderLabel(entry)" class="history-target-provider">
+                    {{ historyEntryProviderLabel(entry) }}
+                  </span>
+                  <span v-if="entry.variant" class="history-target-separator">&middot;</span>
+                  <span v-if="entry.variant" class="history-target-variant">{{
+                    entry.variant
+                  }}</span>
+                </div>
               </div>
               <button
                 type="button"
@@ -43,12 +58,27 @@
         <template #default>
           <div class="dropdown-list">
             <DropdownItem v-for="(entry, i) in favorites" :key="i" :value="entry">
-              <div
-                class="history-item"
-                :style="{ borderLeftColor: entry.agentColor ? `${entry.agentColor}99` : '#334155' }"
-                :title="entry.text"
-              >
+              <div class="history-item" :style="historyEntryStyle(entry)" :title="entry.text">
                 <div class="history-item-text">{{ entry.text }}</div>
+                <div v-if="hasHistoryEntryTarget(entry)" class="history-item-target">
+                  <span
+                    v-if="entry.agent"
+                    class="history-target-agent"
+                    :style="historyEntryAgentStyle(entry)"
+                  >
+                    {{ entry.agent }}
+                  </span>
+                  <span v-if="historyEntryModelDisplayName(entry)" class="history-target-model">
+                    {{ historyEntryModelDisplayName(entry) }}
+                  </span>
+                  <span v-if="historyEntryProviderLabel(entry)" class="history-target-provider">
+                    {{ historyEntryProviderLabel(entry) }}
+                  </span>
+                  <span v-if="entry.variant" class="history-target-separator">&middot;</span>
+                  <span v-if="entry.variant" class="history-target-variant">{{
+                    entry.variant
+                  }}</span>
+                </div>
               </div>
               <button
                 type="button"
@@ -227,7 +257,9 @@
               title="Variant (Ctrl-, / Ctrl-.)"
               @update:open="handleModelDropdownOpenChange"
             >
-              <template #value="{ value: key }">{{ findThinkingChoice(key)?.label }}</template>
+              <template #value="{ value: key }">
+                <span :style="thinkingValueStyle(key)">{{ findThinkingChoice(key)?.label }}</span>
+              </template>
               <template #default>
                 <div class="dropdown-list">
                   <div v-if="!hasThinkingOptions" class="dropdown-empty">Loading...</div>
@@ -329,6 +361,7 @@ const props = defineProps<{
   commands: CommandOption[];
   attachments: Array<{ id: string; filename: string; mime: string; dataUrl: string }>;
   agentColor?: string;
+  resolveAgentColor?: (agent?: string) => string;
   disabled?: boolean;
 }>();
 
@@ -379,6 +412,48 @@ type HistoryEntry = {
   variant?: string;
 };
 
+function findAgentOption(id: string | undefined) {
+  if (!id) return undefined;
+  return props.agentOptions.find((option) => option.id === id);
+}
+
+function historyEntryColor(entry: HistoryEntry) {
+  return (
+    entry.agentColor ||
+    props.resolveAgentColor?.(entry.agent) ||
+    findAgentOption(entry.agent)?.color
+  );
+}
+
+function historyEntryStyle(entry: HistoryEntry) {
+  const color = historyEntryColor(entry);
+  return { borderLeftColor: color ? `${color}99` : '#334155' };
+}
+
+function historyEntryAgentStyle(entry: HistoryEntry) {
+  const color = historyEntryColor(entry);
+  return color ? { color } : undefined;
+}
+
+function historyEntryModelDisplayName(entry: HistoryEntry) {
+  if (!entry.model) return undefined;
+  return findModelOption(entry.model)?.displayName;
+}
+
+function historyEntryProviderLabel(entry: HistoryEntry) {
+  if (!entry.model) return undefined;
+  return findModelOption(entry.model)?.providerLabel;
+}
+
+function hasHistoryEntryTarget(entry: HistoryEntry) {
+  return Boolean(
+    entry.agent ||
+    historyEntryModelDisplayName(entry) ||
+    historyEntryProviderLabel(entry) ||
+    entry.variant,
+  );
+}
+
 const { favorites, addFavorite, removeFavorite, isFavorite } = useFavoriteMessages();
 
 const userHistory = computed(() => {
@@ -389,9 +464,16 @@ const userHistory = computed(() => {
     if (!text) continue;
     const agent = 'agent' in msg ? (msg.agent as string | undefined) : undefined;
     const agentOption = agent ? props.agentOptions.find((a) => a.id === agent) : undefined;
+    const resolvedAgentColor = props.resolveAgentColor?.(agent);
     const model = msg.model ? `${msg.model.providerID}/${msg.model.modelID}` : undefined;
     const variant = msg.variant;
-    result.push({ text, agent, agentColor: agentOption?.color, model, variant });
+    result.push({
+      text,
+      agent,
+      agentColor: agentOption?.color || resolvedAgentColor,
+      model,
+      variant,
+    });
   }
   return result;
 });
@@ -401,6 +483,10 @@ function applyHistoryEntry(entry: HistoryEntry) {
   if (entry.agent && props.agentOptions.some((a) => a.id === entry.agent)) {
     emit('update:selected-mode', entry.agent);
   }
+  if (entry.model) {
+    emit('update:selected-model', entry.model);
+  }
+  emit('update:selected-thinking', entry.variant);
   nextTick(() => textareaRef.value?.focus());
 }
 
@@ -475,8 +561,6 @@ const commandMatches = computed(() => {
 });
 
 const commandPopupOpen = computed(() => commandMatches.value.length > 0);
-
-
 
 watch(slashQuery, () => {
   activeCommandIndex.value = 0;
@@ -748,13 +832,18 @@ function findAgent(id: unknown): AgentOption | undefined {
   return (props.agentOptions ?? []).find((a) => a.id === id);
 }
 
+function resolveAgentStyle(name?: string, explicitColor?: string) {
+  const color = explicitColor || props.resolveAgentColor?.(name);
+  return color ? { color } : undefined;
+}
+
 function agentValueStyle(id: unknown) {
   const agent = findAgent(id);
-  return agent?.color ? { color: agent.color } : undefined;
+  return resolveAgentStyle(agent?.id, agent?.color);
 }
 
 function agentOptionNameStyle(agent: AgentOption) {
-  return agent.color ? { color: agent.color } : undefined;
+  return resolveAgentStyle(agent.id, agent.color);
 }
 
 function findModelOption(id: unknown): ModelOption | undefined {
@@ -785,6 +874,12 @@ const thinkingKeyValue = computed({
 function findThinkingChoice(key: unknown): ThinkingChoice | undefined {
   if (key == null) return undefined;
   return thinkingChoices.value.find((c) => c.key === key);
+}
+
+function thinkingValueStyle(key: unknown) {
+  const choice = findThinkingChoice(key);
+  if (!choice || choice.value === undefined) return undefined;
+  return { color: '#f59e0b' };
 }
 
 const groupedModelOptions = computed(() => {
@@ -1300,6 +1395,45 @@ const inputMessageStyle = computed(() => {
   overflow: hidden;
   word-break: break-all;
   white-space: pre-wrap;
+}
+
+.history-item-target {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 4px;
+  opacity: 0.92;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-target-agent,
+.history-target-model,
+.history-target-provider,
+.history-target-separator,
+.history-target-variant {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-target-model {
+  color: #f8fafc;
+}
+
+.history-target-provider {
+  color: #94a3b8;
+}
+
+.history-target-separator {
+  color: #94a3b8;
+}
+
+.history-target-variant {
+  color: #f59e0b;
 }
 
 .history-action-button {

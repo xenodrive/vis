@@ -43,6 +43,7 @@
                 :busy-descendant-count="busyDescendantSessionIds.length"
                 :theme="shikiTheme"
                 :resolve-agent-color="resolveAgentColorForName"
+                :resolve-model-meta="resolveModelMetaForPath"
                 :compute-context-percent="computeContextPercent"
                 @message-rendered="handleOutputPanelMessageRendered"
                 @resume-follow="handleOutputPanelResumeFollow"
@@ -105,6 +106,7 @@
           :agent-options="agentOptions"
           :has-agent-options="hasAgentOptions"
           :agent-color="currentAgentColor"
+          :resolve-agent-color="resolveAgentColorForName"
           :model-options="modelOptions"
           :thinking-options="thinkingOptions"
           :has-model-options="hasModelOptions"
@@ -1159,6 +1161,16 @@ function resolveAgentColorForName(agentName?: string) {
   return resolveAgentColor(name, agent?.color, agents.value, resolvedTheme.value);
 }
 
+function resolveModelMetaForPath(modelPath?: string) {
+  if (!modelPath) return undefined;
+  const matched = modelOptions.value.find((model) => model.id === modelPath);
+  if (!matched) return undefined;
+  return {
+    displayName: matched.displayName,
+    providerLabel: matched.providerLabel,
+  };
+}
+
 const currentAgentColor = computed(() => resolveAgentColorForName(selectedMode.value));
 
 function buildThinkingOptions(variants?: Record<string, unknown>) {
@@ -1405,12 +1417,19 @@ function applyComposerDraftToComposerState(draft: ComposerDraft, contextKey: str
     }
   }
 
+  const selectedInfo = modelOptions.value.find((model) => model.id === selectedModel.value);
+  const nextThinkingOptions = buildThinkingOptions(selectedInfo?.variants);
+  const sameThinking =
+    nextThinkingOptions.length === thinkingOptions.value.length &&
+    nextThinkingOptions.every((value, index) => value === thinkingOptions.value[index]);
+  if (!sameThinking) thinkingOptions.value = nextThinkingOptions;
+
   // Validate and apply variant
-  if (draft.variant && thinkingOptions.value.includes(draft.variant)) {
+  if (draft.variant && nextThinkingOptions.includes(draft.variant)) {
     selectedThinking.value = draft.variant;
   } else if (draft.variant) {
     // Variant not found, use first available
-    selectedThinking.value = thinkingOptions.value[0];
+    selectedThinking.value = nextThinkingOptions[0];
   }
 }
 

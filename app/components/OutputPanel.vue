@@ -54,12 +54,24 @@
                 </div>
               </div>
 
-              <div
-                v-if="formatThreadTargetLabel(root)"
-                class="ib-round-target"
-                :style="getRoundTargetStyle(root)"
-              >
-                {{ formatThreadTargetLabel(root) }}
+              <div v-if="hasThreadTarget(root)" class="ib-round-target">
+                <span
+                  v-if="threadTargetAgent(root)"
+                  class="ib-target-agent"
+                  :style="threadTargetAgentStyle(root)"
+                >
+                  {{ threadTargetAgent(root) }}
+                </span>
+                <span v-if="threadTargetModelDisplayName(root)" class="ib-target-model">
+                  {{ threadTargetModelDisplayName(root) }}
+                </span>
+                <span v-if="threadTargetProviderLabel(root)" class="ib-target-provider">
+                  {{ threadTargetProviderLabel(root) }}
+                </span>
+                <span v-if="threadTargetVariant(root)" class="ib-target-separator">&middot;</span>
+                <span v-if="threadTargetVariant(root)" class="ib-target-variant">
+                  {{ threadTargetVariant(root) }}
+                </span>
               </div>
 
               <div v-if="hasAssistantMessages(root)" class="thread-assistant">
@@ -236,6 +248,18 @@ type HistoryWindowEntry =
       time: number;
     };
 
+type ModelMeta = {
+  displayName: string;
+  providerLabel?: string;
+};
+
+type ThreadTarget = {
+  agent?: string;
+  modelDisplayName?: string;
+  providerLabel?: string;
+  variant?: string;
+};
+
 const HISTORY_TOOL_NAMES = new Set(['bash', 'write', 'edit', 'multiedit', 'apply_patch']);
 
 const msg = useMessages();
@@ -249,6 +273,7 @@ const props = defineProps<{
   busyDescendantCount?: number;
   theme: string;
   resolveAgentColor?: (agent?: string) => string;
+  resolveModelMeta?: (modelPath?: string) => ModelMeta | undefined;
   computeContextPercent?: (
     tokens: MessageTokens,
     providerId?: string,
@@ -541,23 +566,56 @@ function confirmRevert(root: MessageInfo) {
   emit('revert-message', { sessionId: root.sessionID, messageId: root.id });
 }
 
-function formatThreadTargetLabel(root: MessageInfo): string {
+function buildThreadTarget(root: MessageInfo): ThreadTarget {
   const final = getFinalAnswer(root);
-  const parts: string[] = [];
   const agent = root.agent ?? final?.agent;
-  if (agent) parts.push(`Agent ${agent}`);
   const modelPath = getMessageModelPath(root) || getMessageModelPath(final);
-  if (modelPath) parts.push(modelPath);
+  const modelMeta = props.resolveModelMeta?.(modelPath);
   const variant = root.variant ?? final?.variant;
-  if (variant) parts.push(`(${variant})`);
-  return parts.join(' ');
+  return {
+    agent,
+    modelDisplayName: modelMeta?.displayName,
+    providerLabel: modelMeta?.providerLabel,
+    variant,
+  };
 }
 
-function getRoundTargetStyle(root: MessageInfo) {
-  const final = getFinalAnswer(root);
-  const color = props.resolveAgentColor
-    ? props.resolveAgentColor(root.agent ?? final?.agent)
-    : '#4ade80';
+const threadTargets = computed(() => {
+  const map = new Map<string, ThreadTarget>();
+  for (const root of visibleRoots.value) {
+    map.set(root.id, buildThreadTarget(root));
+  }
+  return map;
+});
+
+function getThreadTarget(root: MessageInfo): ThreadTarget {
+  return threadTargets.value.get(root.id) ?? {};
+}
+
+function hasThreadTarget(root: MessageInfo) {
+  const target = getThreadTarget(root);
+  return Boolean(target.agent || target.modelDisplayName || target.providerLabel || target.variant);
+}
+
+function threadTargetAgent(root: MessageInfo) {
+  return getThreadTarget(root).agent;
+}
+
+function threadTargetModelDisplayName(root: MessageInfo) {
+  return getThreadTarget(root).modelDisplayName;
+}
+
+function threadTargetProviderLabel(root: MessageInfo) {
+  return getThreadTarget(root).providerLabel;
+}
+
+function threadTargetVariant(root: MessageInfo) {
+  return getThreadTarget(root).variant;
+}
+
+function threadTargetAgentStyle(root: MessageInfo) {
+  const target = getThreadTarget(root);
+  const color = props.resolveAgentColor ? props.resolveAgentColor(target.agent) : '#4ade80';
   return { color };
 }
 
@@ -1174,7 +1232,39 @@ defineExpose({ panelEl });
   font-size: 10px;
   font-weight: 600;
   margin-top: 4px;
-  opacity: 0.7;
+  opacity: 0.92;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ib-target-agent,
+.ib-target-model,
+.ib-target-provider,
+.ib-target-separator,
+.ib-target-variant {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ib-target-model {
+  color: #f8fafc;
+}
+
+.ib-target-provider {
+  color: #94a3b8;
+}
+
+.ib-target-separator {
+  color: #94a3b8;
+}
+
+.ib-target-variant {
+  color: #f59e0b;
 }
 
 .ib-msg-block {
