@@ -20,8 +20,8 @@
         <template #trigger>
           <header class="modal-header">
             <span class="modal-title">Open project</span>
-            <button type="button" class="control-button" @click="handleClose">
-              <Icon icon="lucide:x" :width="12" :height="12" /> Close
+            <button type="button" class="modal-close-button" @click="handleClose">
+              <Icon icon="lucide:x" :width="14" :height="14" />
             </button>
           </header>
           <div class="path-row">
@@ -541,16 +541,21 @@ function ensureTrailingSlash(p: string): string {
   color: #fecaca;
 }
 
-.control-button {
-  background: #1e293b;
-  color: #e2e8f0;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
+.modal-close-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.modal-close-button:hover {
+  background: #1e293b;
+  color: #e2e8f0;
 }
 </style>

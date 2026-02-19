@@ -3,7 +3,6 @@
     ref="dialogRef"
     class="modal-backdrop"
     @close="$emit('close')"
-    @cancel.prevent
     @pointerdown.stop
     @click.self="dialogRef?.close()"
   >
