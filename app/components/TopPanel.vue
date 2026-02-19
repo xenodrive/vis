@@ -147,6 +147,7 @@
                           <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
                         </button>
                         <button
+                          v-if="worktree.projectId !== 'global'"
                           type="button"
                           class="tree-action-button fork"
                           title="Create a new sandbox"
@@ -155,7 +156,7 @@
                           <Icon icon="lucide:git-branch" :width="16" :height="16" />
                         </button>
                         <button
-                          v-if="canDeleteSandbox(sandbox.directory, worktree.directory)"
+                          v-if="canDeleteSandbox(sandbox.directory, worktree.directory) && worktree.projectId !== 'global'"
                           type="button"
                           class="tree-action-button danger"
                           @click.stop="handleSandboxDelete(sandbox.directory, close)"
@@ -478,10 +479,13 @@ const displayedTree = computed(() => {
 
   return worktrees.slice(0, MAX_WORKTREES).map((worktree) => ({
     ...worktree,
-    sandboxes: worktree.sandboxes.slice(0, MAX_SANDBOXES).map((sandbox) => ({
-      ...sandbox,
-      sessions: sandbox.sessions.slice(0, MAX_SESSIONS),
-    })),
+    sandboxes: worktree.sandboxes
+      .filter((sandbox) => worktree.projectId !== 'global' || sandbox.sessions.length > 0)
+      .slice(0, MAX_SANDBOXES)
+      .map((sandbox) => ({
+        ...sandbox,
+        sessions: sandbox.sessions.slice(0, MAX_SESSIONS),
+      })),
   }));
 });
 
