@@ -192,9 +192,12 @@
                                 >archived</span
                               >
                             </div>
-                            <span v-if="session.timeUpdated" class="session-time">{{
-                              formatSessionTime(session.timeUpdated)
-                            }}</span>
+                            <span
+                              v-if="session.timeCreated || session.timeUpdated"
+                              class="session-time"
+                            >
+                              {{ formatSessionMetaTime(session) }}
+                            </span>
                           </div>
                         </div>
                         <button
@@ -299,6 +302,7 @@ export type TopPanelSession = {
   title?: string;
   slug?: string;
   status: 'busy' | 'idle' | 'retry' | 'unknown';
+  timeCreated?: number;
   timeUpdated?: number;
   archivedAt?: number;
 };
@@ -444,6 +448,7 @@ const displayedTree = computed(() => {
                   session.slug,
                   session.id,
                   session.archivedAt ? 'archived' : undefined,
+                  session.timeCreated ? formatSessionTime(session.timeCreated) : undefined,
                   session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined,
                 ),
             );
@@ -510,6 +515,17 @@ function formatSessionTime(timestamp: number) {
   const h = String(d.getHours()).padStart(2, '0');
   const m = String(d.getMinutes()).padStart(2, '0');
   return `${Y}-${M}-${D} ${h}:${m}`;
+}
+
+function formatSessionMetaTime(session: TopPanelSession) {
+  const created = session.timeCreated ? formatSessionTime(session.timeCreated) : undefined;
+  const updated = session.timeUpdated ? formatSessionTime(session.timeUpdated) : undefined;
+  if (created && updated) {
+    return `Created: ${created} / Updated: ${updated}`;
+  }
+  if (created) return `Created: ${created}`;
+  if (updated) return `Updated: ${updated}`;
+  return '';
 }
 
 function canDeleteSandbox(directory: string, worktreeDirectory: string) {

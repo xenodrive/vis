@@ -691,12 +691,7 @@ const sessions = computed<SessionInfo[]>(() => {
   const filtered = directory
     ? roots.filter((session) => !session.directory || session.directory === directory)
     : roots;
-  return filtered
-    .slice()
-    .sort(
-      (a, b) =>
-        (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0),
-    );
+  return filtered.slice().sort((a, b) => (b.time?.created ?? 0) - (a.time?.created ?? 0));
 });
 
 const sessionParentById = computed(() => {
@@ -839,10 +834,11 @@ const topPanelTreeData = computed<TopPanelWorktree[]>(() => {
               title: session.title,
               slug: session.slug,
               status: (session.status ?? 'unknown') as 'busy' | 'idle' | 'retry' | 'unknown',
+              timeCreated: session.timeCreated,
               timeUpdated: session.timeUpdated ?? session.timeCreated,
               archivedAt: session.timeArchived,
             }))
-            .sort((a, b) => (b.timeUpdated ?? 0) - (a.timeUpdated ?? 0));
+            .sort((a, b) => (b.timeCreated ?? 0) - (a.timeCreated ?? 0));
           const latestUpdated = sessionsForSandbox[0]?.timeUpdated ?? 0;
           const oldestCreated =
             sessionsForSandbox.length > 0
@@ -914,18 +910,14 @@ const {
   fetchPendingPermissions,
 } = usePermissions({ fw, allowedSessionIds, activeDirectory, ensureConnectionReady });
 
-const {
-  upsertQuestionEntry,
-  removeQuestionEntry,
-  pruneQuestionEntries,
-  fetchPendingQuestions,
-} = useQuestions({
-  fw,
-  allowedSessionIds,
-  activeDirectory,
-  ensureConnectionReady,
-  getTextContent: (messageId: string) => msg.getTextContent(messageId) || '',
-});
+const { upsertQuestionEntry, removeQuestionEntry, pruneQuestionEntries, fetchPendingQuestions } =
+  useQuestions({
+    fw,
+    allowedSessionIds,
+    activeDirectory,
+    ensureConnectionReady,
+    getTextContent: (messageId: string) => msg.getTextContent(messageId) || '',
+  });
 
 const {
   todosBySessionId,
@@ -5373,12 +5365,6 @@ onMounted(() => {
     }),
   );
   globalEventUnsubscribers.push(
-    ge.on('permission.asked', (packet) => {
-      const request = packet as PermissionRequest;
-      upsertPermissionEntry(request);
-    }),
-  );
-  globalEventUnsubscribers.push(
     sessionScope.on('permission.replied', ({ requestID }) => {
       removePermissionEntry(requestID);
     }),
@@ -5390,12 +5376,6 @@ onMounted(() => {
   );
   globalEventUnsubscribers.push(
     sessionScope.on('question.asked', (packet) => {
-      const request = packet as QuestionRequest;
-      upsertQuestionEntry(request);
-    }),
-  );
-  globalEventUnsubscribers.push(
-    ge.on('question.asked', (packet) => {
       const request = packet as QuestionRequest;
       upsertQuestionEntry(request);
     }),
