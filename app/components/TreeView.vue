@@ -3,8 +3,8 @@
     <div class="tree-header">
       <div class="tree-branch">
         <span class="tree-branch-label" :title="branchTitle">
-          <Icon icon="lucide:git-branch" :width="13" :height="13" class="tree-branch-icon" />
-          <span class="tree-branch-name">{{ branchInfo?.branch ?? 'no git' }}</span>
+          <Icon :icon="branchIcon" :width="13" :height="13" class="tree-branch-icon" />
+          <span class="tree-branch-name">{{ branchName }}</span>
         </span>
         <span
           v-if="branchInfo && branchInfo.ahead > 0"
@@ -177,6 +177,7 @@ const props = defineProps<{
   gitStatusByPath?: Record<string, GitFileStatus>;
   branchInfo?: GitBranchInfo | null;
   diffStats?: GitDiffStats | null;
+  directoryName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -189,10 +190,15 @@ const emit = defineEmits<{
 
 const viewMode = ref<TreeViewMode>('all');
 const expanded = computed(() => new Set(props.expandedPaths));
+const branchIcon = computed(() => (props.branchInfo ? 'lucide:git-branch' : 'lucide:folder'));
+const branchName = computed(() => props.branchInfo?.branch ?? props.directoryName ?? 'no git');
 
 const branchTitle = computed(() => {
   const info = props.branchInfo;
-  if (!info) return 'Git status unavailable';
+  if (!info) {
+    if (props.directoryName) return `Directory: ${props.directoryName}`;
+    return 'Git status unavailable';
+  }
   const head = info.headShort ? ` (${info.headShort})` : '';
   const tracking = info.upstream ? ` tracking ${info.upstream}` : '';
   return `${info.branch}${head}${tracking}`;

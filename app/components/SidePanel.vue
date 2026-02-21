@@ -43,6 +43,7 @@
         :git-status-by-path="treeStatusByPath"
         :branch-info="treeBranchInfo"
         :diff-stats="treeDiffStats"
+        :directory-name="treeDirectoryName"
         @toggle-dir="(path) => emit('toggle-dir', path)"
         @select-file="(path) => emit('select-file', path)"
         @open-diff="(payload) => emit('open-diff', payload)"
@@ -91,6 +92,7 @@ const props = defineProps<{
   treeStatusByPath: Record<string, GitFileStatus>;
   treeBranchInfo?: GitBranchInfo | null;
   treeDiffStats?: GitDiffStats | null;
+  treeDirectoryName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -120,6 +122,7 @@ const {
   treeStatusByPath,
   treeBranchInfo,
   treeDiffStats,
+  treeDirectoryName,
 } = toRefs(props);
 </script>
 

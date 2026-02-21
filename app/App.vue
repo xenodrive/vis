@@ -75,6 +75,7 @@
                 :tree-status-by-path="gitStatusByPath"
                 :tree-branch-info="gitStatus?.branch"
                 :tree-diff-stats="gitStatus?.diffStats"
+                :tree-directory-name="treeDirectoryName"
                 @toggle-collapse="toggleSidePanelCollapsed"
                 @change-tab="setSidePanelTab"
                 @toggle-dir="toggleTreeDirectory"
@@ -1093,6 +1094,15 @@ const {
   selectTreeFile,
   feed,
 } = useFileTree({ activeDirectory });
+
+const treeDirectoryName = computed(() => {
+  const raw = activeDirectory.value.trim();
+  if (!raw) return '';
+  const trimmed = raw.replace(/\/+$/, '');
+  if (!trimmed) return '/';
+  const segments = trimmed.split('/').filter(Boolean);
+  return segments.at(-1) ?? '/';
+});
 
 const { runOneShotPtyCommand } = usePtyOneshot({ activeDirectory });
 

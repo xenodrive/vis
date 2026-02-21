@@ -11,6 +11,7 @@ const GIT_STATUS_SCRIPT = [
   'export NO_COLOR=1',
   'export GIT_CONFIG_NOSYSTEM=1',
   'export TERM=dumb',
+  'git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0',
   'git -c color.status=false -c color.ui=false --no-pager status --porcelain=v1 -sb 2>/dev/null',
   'printf "##HEAD\\n"',
   'git rev-parse --short HEAD 2>/dev/null',
@@ -492,6 +493,10 @@ async function refreshGitStatus() {
       GIT_STATUS_SCRIPT,
     ]);
     if (activeDirectory.value.trim() !== directory) return;
+    if (!output.includes('##HEAD')) {
+      setGitStatus(null);
+      return;
+    }
     const parsed = parseGitStatusOutput(output);
     const filesByPath = new Map(parsed.files.map((entry) => [entry.path, entry]));
     parsed.files = Array.from(filesByPath.values()).sort((a, b) => a.path.localeCompare(b.path));
