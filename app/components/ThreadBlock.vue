@@ -25,7 +25,7 @@
       >
         <div class="ib-msg-row">
           <MessageViewer
-            :key="`user-${root.id}-${fileCacheVersion}`"
+            :key="`user-${root.id}`"
             :code="getMessageContent(root)"
             :lang="'markdown'"
             :theme="theme"
@@ -129,7 +129,6 @@ const HISTORY_TOOL_NAMES = new Set(['bash', 'write', 'edit', 'multiedit', 'apply
 const props = defineProps<{
   root: MessageInfo;
   theme: string;
-  fileCacheVersion: number;
   filesWithBasenames: string[];
   isRevertedPreview: boolean;
   resolveAgentColor?: (agent?: string) => string;

@@ -124,7 +124,7 @@ watch(
 
 // code パス: html が無いときだけ自力で worker render
 watch(
-  () => [props.code, props.lang, props.theme],
+  () => [props.code, props.lang, props.theme, props.files],
   () => {
     if (props.html != null) return;
     startRender();

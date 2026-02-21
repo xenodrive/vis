@@ -21,7 +21,6 @@
               v-show="!initialRenderTrackingActive && shouldRenderRoot(root)"
               :root="root"
               :theme="theme"
-              :file-cache-version="fileCacheVersion"
               :files-with-basenames="filesWithBasenames"
               :is-reverted-preview="isRevertedPreview(root)"
               :resolve-agent-color="resolveAgentColor"
