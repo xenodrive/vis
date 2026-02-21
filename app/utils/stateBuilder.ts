@@ -556,10 +556,16 @@ export function createStateBuilder() {
       if (!sandbox.sessions) sandbox.sessions = {};
     });
 
-    for (const directory of Object.keys(target.sandboxes)) {
-      if (!directories.has(directory)) {
-        delete target.sandboxes[directory];
-        changed = true;
+    // Global never reports sandboxes; skip prune so session.created directories survive.
+    const incomingSandboxes = sanitizeDirectoryList(project.sandboxes);
+    const skipPrune = project.id === 'global' && incomingSandboxes.length === 0;
+
+    if (!skipPrune) {
+      for (const directory of Object.keys(target.sandboxes)) {
+        if (!directories.has(directory)) {
+          delete target.sandboxes[directory];
+          changed = true;
+        }
       }
     }
 
