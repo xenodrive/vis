@@ -906,6 +906,9 @@ function getMarkdownIt(highlighter: Highlighter, theme: string) {
         if (parsed.column) token.attrSet('data-file-col', String(parsed.column));
         if (parsed.endLine) token.attrSet('data-file-end-line', String(parsed.endLine));
         token.attrJoin('class', 'file-ref');
+      } else if (/^[0-9a-f]{7,40}$/i.test(ref)) {
+        token.attrSet('data-commit-ref', ref);
+        token.attrJoin('class', 'commit-ref');
       }
       return defaultCodeInline(tokens, idx, options, env, self);
     };

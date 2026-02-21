@@ -121,6 +121,7 @@ const emit = defineEmits<{
   (event: 'open-image', payload: { url: string; filename: string }): void;
   (event: 'show-thread-history', payload: { entries: HistoryWindowEntry[] }): void;
   (event: 'open-file', path: string, line?: number, endLine?: number): void;
+  (event: 'show-commit', hash: string): void;
   (event: 'message-rendered'): void;
   (event: 'content-resized'): void;
   (event: 'initial-render-complete'): void;
@@ -239,6 +240,13 @@ function handleScroll() {
 
 function handleContentClick(event: MouseEvent) {
   fileRefPopupRef.value?.handleContentClick(event);
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const commitRefEl = target.closest('[data-commit-ref]');
+  if (!(commitRefEl instanceof HTMLElement)) return;
+  const hash = commitRefEl.dataset.commitRef?.trim();
+  if (!hash) return;
+  emit('show-commit', hash);
 }
 
 function handlePopupOpenFile(path: string, line?: number, endLine?: number) {
@@ -352,6 +360,18 @@ defineExpose({ panelEl });
 .output-panel-content :deep(.markdown-host code.file-ref:hover) {
   text-decoration-color: #7dd3fc;
   color: #7dd3fc;
+}
+
+.output-panel-content :deep(.markdown-host code.commit-ref) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(251, 191, 36, 0.4);
+  text-underline-offset: 2px;
+}
+
+.output-panel-content :deep(.markdown-host code.commit-ref:hover) {
+  text-decoration-color: #fbbf24;
+  color: #fbbf24;
 }
 
 .follow-button {

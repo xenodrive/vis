@@ -52,6 +52,7 @@
                 @revert-message="handleRevertMessage"
                 @undo-revert="handleUndoRevert"
                 @show-message-diff="handleShowMessageDiff"
+                @show-commit="handleShowCommit"
                 @show-thread-history="handleShowThreadHistory"
                 @edit-message="handleEditMessage"
                 @open-image="handleOpenImage"
@@ -348,6 +349,33 @@ const TERM_GUTTER_WIDTH_EM = 3.2;
 const TERM_FONT_FAMILY =
   "'Iosevka Term', 'Iosevka Fixed', 'JetBrains Mono', 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace";
 const SHELL_LINGER_MS = 1000;
+const COMMIT_SNAPSHOT_TIMEOUT_MS = 30000;
+const COMMIT_SNAPSHOT_SCRIPT = [
+  'stty -opost -echo 2>/dev/null',
+  'export GIT_PAGER=cat',
+  'export GIT_TERMINAL_PROMPT=0',
+  'h=$1',
+  'printf "##TITLE\\t%s\\n" "$(git --no-pager log --format="%h %s" -1 "$h" 2>/dev/null)"',
+  'git diff-tree --no-commit-id -r --name-status --find-renames --find-copies --first-parent --root "$h" 2>/dev/null | while IFS="$(printf "\\t")" read -r st p1 p2; do',
+  '  code=${st%"${st#?}"}',
+  '  old=$p1',
+  '  new=$p1',
+  '  if [ "$code" = "R" ] || [ "$code" = "C" ]; then',
+  '    old=$p1',
+  '    new=$p2',
+  '  fi',
+  '  printf "##FILE\\t%s\\t%s\\n" "$st" "$new"',
+  '  printf "##BEFORE\\n"',
+  '  if [ "$code" != "A" ]; then',
+  '    git --no-pager show "$h^:$old" 2>/dev/null | base64 -w 76',
+  '  fi',
+  '  printf "##AFTER\\n"',
+  '  if [ "$code" != "D" ]; then',
+  '    git --no-pager show "$h:$new" 2>/dev/null | base64 -w 76',
+  '  fi',
+  'done',
+  'printf "##END\\n"',
+].join('\n');
 const REASONING_CLOSE_DELAY_MS = 3000;
 const SUBAGENT_CLOSE_DELAY_MS = 3000;
 const ATTACHMENT_MIME_ALLOWLIST = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -382,6 +410,18 @@ type ShellSession = {
   terminal: Terminal;
   socket?: WebSocket;
   exiting?: boolean;
+};
+
+type CommitSnapshotEntry = {
+  status: string;
+  file: string;
+  before: string;
+  after: string;
+};
+
+type CommitSnapshotResult = {
+  title: string;
+  files: CommitSnapshotEntry[];
 };
 
 type Attachment = {
@@ -3184,6 +3224,158 @@ async function openShellFromInput(input: string) {
   if (pty) ensureShellWindow(pty);
 }
 
+async function runOneShotPtyCommand(command: string, args: string[]) {
+  const directory = activeDirectory.value || undefined;
+  const data = await opencodeApi.createPty({
+    directory,
+    command,
+    args,
+    cwd: directory,
+    title: 'Commit Snapshot',
+  });
+  const pty = parsePtyInfo(data);
+  if (!pty) {
+    throw new Error('failed to create PTY command session');
+  }
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      const url = buildPtyWsUrl(`/pty/${pty.id}/connect`, directory);
+      const socket = new WebSocket(url);
+      const decoder = new TextDecoder();
+      let captured = '';
+      let settled = false;
+
+      const settle = (handler: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        handler();
+      };
+
+      const timeoutId = setTimeout(() => {
+        settle(() => reject(new Error('PTY command timed out')));
+        socket.close();
+      }, COMMIT_SNAPSHOT_TIMEOUT_MS);
+
+      socket.binaryType = 'arraybuffer';
+      socket.addEventListener('message', (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          const bytes = new Uint8Array(event.data);
+          if (bytes.length > 0 && bytes[0] === 0) {
+            return;
+          }
+          captured += decoder.decode(bytes, { stream: true });
+          return;
+        }
+        if (typeof event.data !== 'string') return;
+        const trimmed = event.data.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const payload = JSON.parse(trimmed) as Record<string, unknown>;
+            if (
+              Object.keys(payload).length === 1 &&
+              typeof payload.cursor === 'number' &&
+              Number.isSafeInteger(payload.cursor) &&
+              payload.cursor >= 0
+            ) {
+              return;
+            }
+          } catch (error) {
+            void error;
+          }
+        }
+        captured += event.data;
+      });
+      socket.addEventListener('close', () => {
+        settle(() => {
+          captured += decoder.decode();
+          resolve(captured);
+        });
+      });
+      socket.addEventListener('error', () => {
+        settle(() => reject(new Error('PTY command socket failed')));
+      });
+    });
+  } finally {
+    await opencodeApi.deletePty(pty.id, directory).catch((error) => {
+      log('PTY delete failed', error);
+    });
+  }
+}
+
+function decodeCommitSnapshotBase64(value: string) {
+  if (!value) return '';
+  return new TextDecoder().decode(toUint8ArrayFromBase64(value));
+}
+
+function parseCommitSnapshotOutput(rawOutput: string): CommitSnapshotResult {
+  const files: CommitSnapshotEntry[] = [];
+  let title = '';
+  let section: 'none' | 'before' | 'after' = 'none';
+  let current:
+    | {
+        status: string;
+        file: string;
+        before: string[];
+        after: string[];
+      }
+    | undefined;
+
+  const pushCurrent = () => {
+    if (!current || !current.file) {
+      current = undefined;
+      section = 'none';
+      return;
+    }
+    files.push({
+      status: current.status,
+      file: current.file,
+      before: decodeCommitSnapshotBase64(current.before.join('')),
+      after: decodeCommitSnapshotBase64(current.after.join('')),
+    });
+    current = undefined;
+    section = 'none';
+  };
+
+  for (const rawLine of rawOutput.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (line.startsWith('##TITLE\t')) {
+      title = line.slice('##TITLE\t'.length);
+      continue;
+    }
+    if (line.startsWith('##FILE\t')) {
+      pushCurrent();
+      const payload = line.slice('##FILE\t'.length);
+      const separator = payload.indexOf('\t');
+      const status = separator >= 0 ? payload.slice(0, separator) : payload;
+      const file = separator >= 0 ? payload.slice(separator + 1) : '';
+      current = { status, file, before: [], after: [] };
+      section = 'none';
+      continue;
+    }
+    if (line === '##BEFORE') {
+      section = 'before';
+      continue;
+    }
+    if (line === '##AFTER') {
+      section = 'after';
+      continue;
+    }
+    if (line === '##END') {
+      break;
+    }
+    if (!current || line.length === 0) continue;
+    if (section === 'before') {
+      current.before.push(line);
+    } else if (section === 'after') {
+      current.after.push(line);
+    }
+  }
+
+  pushCurrent();
+  return { title, files };
+}
+
 function parseSlashCommand(input: string) {
   const trimmed = input.trim();
   if (!trimmed.startsWith('/')) return null;
@@ -4338,6 +4530,89 @@ function handleShowMessageDiff(payload: { messageKey: string; diffs: Array<Messa
     height: FILE_VIEWER_WINDOW_HEIGHT,
     expiry: Infinity,
   });
+}
+
+async function handleShowCommit(hashRaw: string) {
+  const hash = hashRaw.trim();
+  if (!/^[0-9a-f]{7,40}$/i.test(hash)) return;
+  const key = `commit-diff:${hash}`;
+  if (fw.has(key)) {
+    fw.bringToFront(key);
+    return;
+  }
+
+  const pos = getFileViewerPosition();
+  await fw.open(key, {
+    content: `Loading commit ${hash}...`,
+    lang: 'text',
+    variant: 'plain',
+    closable: true,
+    resizable: true,
+    scroll: 'manual',
+    title: `commit ${hash}`,
+    x: pos.x,
+    y: pos.y,
+    width: FILE_VIEWER_WINDOW_WIDTH,
+    height: FILE_VIEWER_WINDOW_HEIGHT,
+    expiry: Infinity,
+  });
+
+  try {
+    const output = await runOneShotPtyCommand('bash', [
+      '--noprofile',
+      '--norc',
+      '-c',
+      COMMIT_SNAPSHOT_SCRIPT,
+      '_',
+      hash,
+    ]);
+    const snapshot = parseCommitSnapshotOutput(output);
+    if (snapshot.files.length === 0) {
+      throw new Error('no files parsed from commit snapshot');
+    }
+    if (!fw.has(key)) return;
+
+    const first = snapshot.files[0];
+    const title =
+      snapshot.title ||
+      (snapshot.files.length === 1 ? first.file : `${snapshot.files.length} files changed`);
+    const diffTabs =
+      snapshot.files.length > 1
+        ? snapshot.files.map((entry) => ({
+            file: entry.file,
+            before: entry.before,
+            after: entry.after,
+          }))
+        : undefined;
+
+    await fw.open(key, {
+      component: FileViewerContent,
+      props: {
+        path: first.file,
+        isDiff: true,
+        diffCode: first.before,
+        diffAfter: first.after,
+        diffTabs,
+        gutterMode: 'double',
+        lang: snapshot.files.length === 1 ? guessLanguage(first.file) : 'text',
+        theme: shikiTheme.value,
+      },
+      title,
+      closable: true,
+      resizable: true,
+      scroll: 'manual',
+      x: pos.x,
+      y: pos.y,
+      width: FILE_VIEWER_WINDOW_WIDTH,
+      height: FILE_VIEWER_WINDOW_HEIGHT,
+      expiry: Infinity,
+    });
+  } catch (error) {
+    log('Commit snapshot failed', error);
+    if (fw.has(key)) {
+      await fw.close(key);
+    }
+  }
 }
 
 function openToolPartAsWindow(
