@@ -17,6 +17,7 @@ const GIT_STATUS_SCRIPT = [
   'git rev-parse --short HEAD 2>/dev/null',
   'printf "##DIFFSTAT\\n"',
   'git diff --shortstat 2>/dev/null',
+  'printf "##DIFFSTAT_CACHED\\n"',
   'git diff --cached --shortstat 2>/dev/null',
 ].join('\n');
 
@@ -54,9 +55,14 @@ export type GitBranchInfo = {
   headShort?: string;
 };
 
-export type GitDiffStats = {
+export type GitDiffStatsEntry = {
   additions: number;
   deletions: number;
+};
+
+export type GitDiffStats = {
+  staged: GitDiffStatsEntry;
+  unstaged: GitDiffStatsEntry;
 };
 
 export type GitStatus = {
@@ -389,10 +395,12 @@ function parseGitStatusOutput(output: string): GitStatus {
     behind: 0,
   };
   const entries: GitFileStatus[] = [];
-  let section: 'status' | 'head' | 'diffstat' = 'status';
+  let section: 'status' | 'head' | 'diffstat' | 'diffstat_cached' = 'status';
   let headShort = '';
-  let totalAdditions = 0;
-  let totalDeletions = 0;
+  let unstagedAdditions = 0;
+  let unstagedDeletions = 0;
+  let stagedAdditions = 0;
+  let stagedDeletions = 0;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
@@ -405,6 +413,10 @@ function parseGitStatusOutput(output: string): GitStatus {
       section = 'diffstat';
       continue;
     }
+    if (line === '##DIFFSTAT_CACHED') {
+      section = 'diffstat_cached';
+      continue;
+    }
 
     if (section === 'head') {
       if (!headShort && /^[0-9a-f]+$/i.test(line)) {
@@ -415,8 +427,15 @@ function parseGitStatusOutput(output: string): GitStatus {
 
     if (section === 'diffstat') {
       const stat = parseShortstatLine(line);
-      totalAdditions += stat.additions;
-      totalDeletions += stat.deletions;
+      unstagedAdditions += stat.additions;
+      unstagedDeletions += stat.deletions;
+      continue;
+    }
+
+    if (section === 'diffstat_cached') {
+      const stat = parseShortstatLine(line);
+      stagedAdditions += stat.additions;
+      stagedDeletions += stat.deletions;
       continue;
     }
 
@@ -460,7 +479,10 @@ function parseGitStatusOutput(output: string): GitStatus {
   return {
     branch,
     files: entries,
-    diffStats: { additions: totalAdditions, deletions: totalDeletions },
+    diffStats: {
+      staged: { additions: stagedAdditions, deletions: stagedDeletions },
+      unstaged: { additions: unstagedAdditions, deletions: unstagedDeletions },
+    },
   };
 }
 

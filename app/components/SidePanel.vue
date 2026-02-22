@@ -47,7 +47,7 @@
         @toggle-dir="(path) => emit('toggle-dir', path)"
         @select-file="(path) => emit('select-file', path)"
         @open-diff="(payload) => emit('open-diff', payload)"
-        @open-diff-all="emit('open-diff-all')"
+        @open-diff-all="(payload) => emit('open-diff-all', payload)"
         @open-file="(path) => emit('open-file', path)"
       />
     </div>
@@ -101,7 +101,7 @@ const emit = defineEmits<{
   (event: 'toggle-dir', path: string): void;
   (event: 'select-file', path: string): void;
   (event: 'open-diff', payload: { path: string; staged: boolean }): void;
-  (event: 'open-diff-all'): void;
+  (event: 'open-diff-all', payload: { mode: 'staged' | 'changes' | 'all' }): void;
   (event: 'open-file', path: string): void;
 }>();
 

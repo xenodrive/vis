@@ -21,7 +21,7 @@
           <Icon icon="lucide:arrow-down" :width="11" :height="11" title="" />{{ branchInfo.behind }}
         </span>
         <span
-          v-if="diffStats && (diffStats.additions > 0 || diffStats.deletions > 0)"
+          v-if="activeDiffStats && (activeDiffStats.additions > 0 || activeDiffStats.deletions > 0)"
           class="tree-branch-stats"
           role="button"
           tabindex="0"
@@ -30,11 +30,11 @@
           @keydown.enter.prevent="onDiffStatsClick"
           @keydown.space.prevent="onDiffStatsClick"
         >
-          <span v-if="diffStats.additions > 0" class="tree-stat-add"
-            >+{{ diffStats.additions }}</span
+          <span v-if="activeDiffStats.additions > 0" class="tree-stat-add"
+            >+{{ activeDiffStats.additions }}</span
           >
-          <span v-if="diffStats.deletions > 0" class="tree-stat-del"
-            >−{{ diffStats.deletions }}</span
+          <span v-if="activeDiffStats.deletions > 0" class="tree-stat-del"
+            >−{{ activeDiffStats.deletions }}</span
           >
         </span>
       </div>
@@ -156,9 +156,14 @@ export type GitBranchInfo = {
   headShort?: string;
 };
 
-export type GitDiffStats = {
+export type GitDiffStatsEntry = {
   additions: number;
   deletions: number;
+};
+
+export type GitDiffStats = {
+  staged: GitDiffStatsEntry;
+  unstaged: GitDiffStatsEntry;
 };
 
 type TreeViewMode = 'staged' | 'changes' | 'all';
@@ -184,7 +189,7 @@ const emit = defineEmits<{
   (event: 'toggle-dir', path: string): void;
   (event: 'select-file', path: string): void;
   (event: 'open-diff', payload: { path: string; staged: boolean }): void;
-  (event: 'open-diff-all'): void;
+  (event: 'open-diff-all', payload: { mode: 'staged' | 'changes' | 'all' }): void;
   (event: 'open-file', path: string): void;
 }>();
 
@@ -204,8 +209,19 @@ const branchTitle = computed(() => {
   return `${info.branch}${head}${tracking}`;
 });
 
-const diffStatsTitle = computed(() => {
+const activeDiffStats = computed((): GitDiffStatsEntry | null => {
   const stats = props.diffStats;
+  if (!stats) return null;
+  if (viewMode.value === 'staged') return stats.staged;
+  if (viewMode.value === 'changes') return stats.unstaged;
+  return {
+    additions: stats.staged.additions + stats.unstaged.additions,
+    deletions: stats.staged.deletions + stats.unstaged.deletions,
+  };
+});
+
+const diffStatsTitle = computed(() => {
+  const stats = activeDiffStats.value;
   if (!stats) return '';
   const parts: string[] = [];
   if (stats.additions > 0) parts.push(`+${stats.additions} insertions`);
@@ -445,7 +461,7 @@ function onStatusClick(path: string) {
 }
 
 function onDiffStatsClick() {
-  emit('open-diff-all');
+  emit('open-diff-all', { mode: viewMode.value });
 }
 
 function onRowClick(row: { node: TreeNode }) {
