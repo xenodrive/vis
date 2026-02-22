@@ -208,6 +208,7 @@
                           </div>
                         </div>
                         <button
+                          v-if="!session.archivedAt"
                           type="button"
                           class="tree-action-button session-del"
                           :class="isShiftPressed ? 'danger' : 'archive'"
