@@ -143,7 +143,7 @@
           :auto-close="false"
           :auto-focus="false"
           :auto-highlight="true"
-          popup-class="command-popup"
+          popup-class="input-dropdown-popup command-popup"
           @select="handleCommandSelect"
         >
           <template #trigger><span /></template>
@@ -154,7 +154,7 @@
                 :key="command.name"
                 :value="command.name"
               >
-                <div>
+                <div class="command-dropdown-item">
                   <div class="command-name">/{{ command.name }}</div>
                   <div v-if="command.description" class="command-desc">
                     {{ command.description }}
@@ -1312,23 +1312,30 @@ const inputMessageStyle = computed(() => {
   bottom: anchor(top);
   margin-top: 0;
   margin-bottom: 8px;
-  background: rgba(2, 6, 23, 0.98);
-  border: 1px solid #334155;
-  border-radius: 10px;
-  padding: 6px;
-  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.45);
   max-height: 220px;
-  overflow: auto;
-  outline: none;
-  z-index: 5;
+}
+
+:deep(.command-popup) .ui-dropdown-item[aria-selected='true'] {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+}
+
+.command-dropdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
 }
 .command-name {
   font-size: 12px;
   color: #e2e8f0;
+  line-height: 1.2;
 }
 .command-desc {
-  font-size: 11px;
+  font-size: 10px;
   color: #94a3b8;
+  line-height: 1.2;
 }
 
 .history-dropdown-wrapper {
