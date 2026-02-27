@@ -4383,7 +4383,7 @@ async function openGitDiff(payload: { path: string; staged: boolean }) {
         isDiff: true,
         diffCode: snapshot.before,
         diffAfter: snapshot.after,
-        gutterMode: 'none',
+        gutterMode: 'double',
         lang: guessLanguage(path),
         theme: shikiTheme.value,
       },

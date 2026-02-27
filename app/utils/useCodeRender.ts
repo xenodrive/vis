@@ -30,7 +30,11 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
       requestId += 1;
       const current = requestId;
 
-      if (!p) return;
+      if (!p) {
+        html.value = '';
+        error.value = '';
+        return;
+      }
 
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       renderWorkerHtml({
