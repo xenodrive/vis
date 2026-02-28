@@ -5101,7 +5101,7 @@ async function startInitialization() {
   try {
     connectionState.value = 'connecting';
     initLoadingMessage.value = 'Connecting to SSE stream...';
-    await ge.connect({ failFast: true, timeoutMs: 5000 });
+    await ge.connect({ failFast: true, timeoutMs: 10000 });
     connectionState.value = 'bootstrapping';
     initLoadingMessage.value = 'Loading server path...';
     await fetchHomePath();
