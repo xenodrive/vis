@@ -19,6 +19,7 @@
           <div class="name-row">
             <input v-model="form.name" type="text" class="field-input" :placeholder="defaultName" />
             <button
+              v-if="readPackageName"
               type="button"
               class="sync-button"
               :disabled="!packageJsonName"
@@ -98,6 +99,7 @@
           <span class="field-description">Runs after creating a new workspace (worktree).</span>
         </div>
 
+        <p v-if="error" class="field-description">{{ error }}</p>
         <div class="modal-actions">
           <button type="submit" class="action-button save" :disabled="saving">
             {{ saving ? 'Saving...' : 'Save' }}
@@ -111,7 +113,6 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue';
 import { Icon } from '@iconify/vue';
-import * as opencodeApi from '../utils/opencode';
 
 const COLOR_KEYS = ['pink', 'mint', 'orange', 'purple', 'cyan', 'lime'] as const;
 
@@ -132,6 +133,9 @@ const props = defineProps<{
   iconColor?: string;
   iconOverride?: string;
   commandsStart?: string;
+  saving?: boolean;
+  error?: string;
+  readPackageName?: (directory: string) => Promise<string | undefined>;
 }>();
 
 const emit = defineEmits<{
@@ -150,7 +154,6 @@ const emit = defineEmits<{
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
 const iconInput = ref<HTMLInputElement | null>(null);
-const saving = ref(false);
 const dragOver = ref(false);
 const packageJsonName = ref<string | undefined>(undefined);
 
@@ -196,7 +199,6 @@ watch(
       form.color = props.iconColor || 'pink';
       form.iconUrl = props.iconOverride || '';
       form.startup = props.commandsStart || '';
-      saving.value = false;
       dragOver.value = false;
       packageJsonName.value = undefined;
       if (!el.open) el.showModal();
@@ -210,16 +212,7 @@ watch(
 async function fetchPackageJsonName() {
   if (!props.worktree) return;
   try {
-    const result = (await opencodeApi.readFileContent({
-      directory: props.worktree,
-      path: 'package.json',
-    })) as { content?: string; encoding?: string } | string;
-    const content = typeof result === 'string' ? result : result?.content;
-    if (!content) return;
-    const isBase64 = typeof result !== 'string' && result?.encoding === 'base64';
-    const decoded = isBase64 ? atob(content) : content;
-    const parsed = JSON.parse(decoded);
-    const name = parsed?.name;
+    const name = await props.readPackageName?.(props.worktree);
     if (typeof name === 'string' && name.trim()) {
       packageJsonName.value = name.trim();
     }
@@ -255,19 +248,15 @@ function clearIcon() {
 }
 
 async function handleSubmit() {
-  saving.value = true;
-  try {
-    const name = form.name.trim() === defaultName.value ? '' : form.name.trim();
-    emit('save', {
-      projectId: props.projectId,
-      worktree: props.worktree,
-      name,
-      icon: { color: form.color, override: form.iconUrl },
-      commands: { start: form.startup.trim() },
-    });
-  } finally {
-    saving.value = false;
-  }
+  if (props.saving) return;
+  const name = form.name.trim() === defaultName.value ? '' : form.name.trim();
+  emit('save', {
+    projectId: props.projectId,
+    worktree: props.worktree,
+    name,
+    icon: { color: form.color, override: form.iconUrl },
+    commands: { start: form.startup.trim() },
+  });
 }
 </script>
 

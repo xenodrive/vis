@@ -65,6 +65,7 @@ import {
   ref,
   watch,
   type StyleValue,
+  type HTMLAttributes,
 } from 'vue';
 import { Icon } from '@iconify/vue';
 
@@ -84,9 +85,9 @@ const props = withDefaults(
     modelValue?: T;
     label?: string;
     placeholder?: string;
-    buttonClass?: unknown;
+    buttonClass?: HTMLAttributes['class'];
     buttonStyle?: StyleValue;
-    popupClass?: unknown;
+    popupClass?: HTMLAttributes['class'];
     popupStyle?: StyleValue;
     autoClose?: boolean;
     disabled?: boolean;

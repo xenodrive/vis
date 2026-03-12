@@ -9,7 +9,7 @@ export function useThinkingAnimation(isThinking: Ref<boolean>, busyDescendantCou
   let thinkingTimer: number | undefined;
 
   const thinkingDisplayText = computed(() => {
-    if (!isThinking.value) return '🟢 Idle';
+    if (!isThinking.value) return '🟢 Ready';
     const descendants = busyDescendantCount.value;
     const total = Math.max(1, 1 + descendants);
     const heads = '🤔'.repeat(Math.min(total, 8));

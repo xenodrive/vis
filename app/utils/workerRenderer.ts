@@ -26,6 +26,7 @@ type PendingEntry = {
 
 let renderWorker: Worker | null = null;
 const pending = new Map<string, PendingEntry>();
+let requestSequence = 0;
 
 function getWorker() {
   if (renderWorker) return renderWorker;
@@ -47,9 +48,9 @@ function getWorker() {
 }
 
 export function renderWorkerHtml(payload: RenderRequest) {
-  const id = payload.id;
+  const id = `${payload.id}:${++requestSequence}`;
   return new Promise<string>((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    getWorker().postMessage(payload);
+    getWorker().postMessage({ ...payload, id });
   });
 }

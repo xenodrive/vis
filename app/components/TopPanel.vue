@@ -2,8 +2,9 @@
   <div class="top-panel">
     <div class="top-row">
       <div class="top-left flex items-center gap-2" :title="gitRevision">
-        <img width="48px" height="24px" src="/logo.svg" class="" />
-        <div class="font-normal hidden lg:block relative top-0.5">OpenCode Visualizer</div>
+        <img width="48px" height="24px" :src="logoUrl" class="" />
+        <div class="font-normal hidden lg:block translate-y-0.5">OpenCode Visualizer</div>
+        <div id="location-picker"></div>
       </div>
       <div class="top-center">
         <button
@@ -27,244 +28,264 @@
             totalNotificationCount
           }}</span>
         </button>
-        <Dropdown
-          v-model:open="treeDropdownOpen"
-          class="tree-dropdown-root"
-          :label="dropdownLabel"
-          placeholder="Select session"
-          title="Select session (Ctrl-G)"
-          auto-close
-          :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
-          popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
-          @select="onTreeSelect"
-        >
-          <template #label>
-            <span v-if="selectedDisplay" class="selected-label">
-              <span class="selected-status-icon">{{
-                sessionStatusIcon(selectedDisplay.status)
-              }}</span>
-              <span class="selected-title">{{ selectedDisplay.title }}</span>
-              <span class="selected-branch-badge">
-                <Icon icon="lucide:git-branch" :width="11" :height="11" />
-                {{ selectedDisplay.branch }}
+        <slot name="selection">
+          <Dropdown
+            v-model:open="treeDropdownOpen"
+            class="tree-dropdown-root"
+            :label="dropdownLabel"
+            placeholder="Select session"
+            title="Select session (Ctrl-G)"
+            auto-close
+            :popup-style="{ minWidth: '420px', width: 'min(680px, 90vw)', maxWidth: '90vw' }"
+            popup-class="max-lg:left-0! max-lg:w-screen! max-lg:min-w-0! max-lg:max-w-none!"
+            @select="onTreeSelect"
+          >
+            <template #label>
+              <span v-if="selectedDisplay" class="selected-label">
+                <span class="selected-status-icon">{{
+                  sessionStatusIcon(selectedDisplay.status)
+                }}</span>
+                <span class="selected-title">{{ selectedDisplay.title }}</span>
+                <span class="selected-branch-badge">
+                  <Icon icon="lucide:git-branch" :width="11" :height="11" />
+                  {{ selectedDisplay.branch }}
+                </span>
               </span>
-            </span>
-            <span v-else class="selected-title">Select session</span>
-          </template>
-          <template #default="{ close }">
-            <div class="tree-menu">
-              <DropdownSearch
-                v-model="searchQuery"
-                placeholder="Search sessions, branches, directories..."
-                class="tree-search"
-              >
-                <template #before>
-                  <Icon icon="lucide:search" class="search-icon" />
-                </template>
-                <template #after>
-                  <button
-                    v-if="searchQuery"
-                    type="button"
-                    class="clear-search"
-                    @click.stop="searchQuery = ''"
-                  >
-                    <Icon icon="lucide:x" />
-                  </button>
-                </template>
-              </DropdownSearch>
-
-              <div class="tree-content">
-                <div v-if="displayedTree.length === 0" class="tree-empty">
-                  {{ searchQuery ? 'No matching sessions' : 'No worktrees' }}
-                </div>
-
-                <div
-                  v-for="worktree in displayedTree"
-                  :key="worktree.directory"
-                  class="tree-worktree"
-                  :style="worktreeAccentStyle(worktree)"
+              <span v-else class="selected-title">Select session</span>
+            </template>
+            <template #default="{ close }">
+              <div class="tree-menu">
+                <DropdownSearch
+                  v-model="searchQuery"
+                  placeholder="Search sessions, branches, directories..."
+                  class="tree-search"
                 >
-                  <div class="tree-worktree-header">
-                    <div class="tree-header-main">
-                      <Icon
-                        :icon="worktree.projectId === 'global' ? 'lucide:globe' : 'lucide:package'"
-                        class="tree-header-icon"
-                      />
-                      <div class="tree-label">
-                        <span class="tree-label-name" :title="worktree.directory">{{
-                          worktree.name || directoryBasename(worktree.directory)
-                        }}</span>
-                        <small class="tree-label-type" :title="worktree.directory">{{
-                          shortenPath(worktree.directory)
-                        }}</small>
-                      </div>
-                    </div>
+                  <template #before>
+                    <Icon icon="lucide:search" class="search-icon" />
+                  </template>
+                  <template #after>
                     <button
-                      v-if="worktree.projectId && worktree.projectId !== 'global'"
+                      v-if="searchQuery"
                       type="button"
-                      class="tree-action-button worktree-settings"
-                      title="Project settings"
-                      @click.stop="
-                        $emit('edit-project', {
-                          projectId: worktree.projectId,
-                          worktree: worktree.directory,
-                        })
-                      "
+                      class="clear-search"
+                      @click.stop="searchQuery = ''"
                     >
-                      <Icon icon="lucide:settings" :width="14" :height="14" />
+                      <Icon icon="lucide:x" />
                     </button>
+                  </template>
+                </DropdownSearch>
+
+                <div class="tree-content">
+                  <div v-if="displayedTree.length === 0" class="tree-empty">
+                    {{ searchQuery ? 'No matching sessions' : 'No worktrees' }}
                   </div>
 
                   <div
-                    v-for="sandbox in worktree.sandboxes"
-                    :key="sandbox.directory"
-                    class="tree-sandbox"
+                    v-for="worktree in displayedTree"
+                    :key="worktree.directory"
+                    class="tree-worktree"
+                    :style="worktreeAccentStyle(worktree)"
                   >
-                    <div class="tree-sandbox-header">
+                    <div class="tree-worktree-header">
                       <div class="tree-header-main">
                         <Icon
                           :icon="
-                            worktree.projectId === 'global' ? 'lucide:folder' : 'lucide:git-branch'
+                            worktree.projectId === 'global' ? 'lucide:globe' : 'lucide:package'
                           "
                           class="tree-header-icon"
                         />
                         <div class="tree-label">
-                          <span class="tree-label-name" :title="sandbox.directory">{{
-                            sandbox.branch || directoryBasename(sandbox.directory)
+                          <span class="tree-label-name" :title="worktree.directory">{{
+                            worktree.name || directoryBasename(worktree.directory)
                           }}</span>
-                          <small class="tree-label-type" :title="sandbox.directory">{{
-                            shortenPath(sandbox.directory)
+                          <small class="tree-label-type" :title="worktree.directory">{{
+                            shortenPath(worktree.directory)
                           }}</small>
                         </div>
                       </div>
-                      <div class="tree-actions">
-                        <button
-                          type="button"
-                          class="tree-action-button new-session"
-                          title="New session"
-                          @click.stop="
-                            handleCreateSessionIn(worktree.directory, sandbox.directory, close)
-                          "
-                        >
-                          <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
-                        </button>
-                        <button
-                          v-if="worktree.projectId !== 'global'"
-                          type="button"
-                          class="tree-action-button fork"
-                          title="Create a new sandbox"
-                          @click.stop="handleCreateWorktree(sandbox.directory, close)"
-                        >
-                          <Icon icon="lucide:git-branch-plus" :width="16" :height="16" />
-                        </button>
-                        <button
-                          v-if="
-                            canDeleteSandbox(sandbox.directory, worktree.directory) &&
-                            worktree.projectId !== 'global'
-                          "
-                          type="button"
-                          class="tree-action-button danger"
-                          @click.stop="handleSandboxDelete(sandbox.directory, close)"
-                        >
-                          <Icon icon="lucide:trash-2" :width="16" :height="16" />
-                        </button>
-                      </div>
+                      <button
+                        v-if="worktree.projectId && worktree.projectId !== 'global'"
+                        type="button"
+                        class="tree-action-button worktree-settings"
+                        title="Project settings"
+                        :disabled="disabledActions?.includes('project')"
+                        @click.stop="
+                          $emit('edit-project', {
+                            projectId: worktree.projectId,
+                            worktree: worktree.directory,
+                          })
+                        "
+                      >
+                        <Icon icon="lucide:settings" :width="14" :height="14" />
+                      </button>
                     </div>
 
                     <div
-                      v-for="session in sandbox.sessions"
-                      :key="session.id"
-                      class="tree-session-row"
+                      v-for="sandbox in worktree.sandboxes"
+                      :key="sandbox.directory"
+                      class="tree-sandbox"
                     >
-                      <DropdownItem
-                        :href="sessionShareHref(worktree.projectId, session.id)"
-                        :value="{
-                          projectId: worktree.projectId,
-                          worktree: worktree.directory,
-                          directory: sandbox.directory,
-                          sessionId: session.id,
-                        }"
-                        :active="session.id === selectedSessionId"
-                      >
-                        <div class="tree-session-main">
-                          <span class="session-status-icon" :title="session.status">{{
-                            sessionStatusIcon(session.status)
-                          }}</span>
-                          <div class="session-info">
-                            <div class="session-info-top">
-                              <span class="session-title">{{
-                                session.title || session.slug || session.id
-                              }}</span>
-                              <span v-if="session.archivedAt" class="session-badge-archived"
-                                >archived</span
-                              >
-                            </div>
-                            <span
-                              v-if="session.timeCreated || session.timeUpdated"
-                              class="session-time"
-                            >
-                              {{ formatSessionMetaTime(session) }}
-                            </span>
+                      <div class="tree-sandbox-header">
+                        <div class="tree-header-main">
+                          <Icon
+                            :icon="
+                              worktree.projectId === 'global'
+                                ? 'lucide:folder'
+                                : 'lucide:git-branch'
+                            "
+                            class="tree-header-icon"
+                          />
+                          <div class="tree-label">
+                            <span class="tree-label-name" :title="sandbox.directory">{{
+                              sandbox.branch || directoryBasename(sandbox.directory)
+                            }}</span>
+                            <small class="tree-label-type" :title="sandbox.directory">{{
+                              shortenPath(sandbox.directory)
+                            }}</small>
                           </div>
                         </div>
-                        <button
-                          v-if="!session.archivedAt"
-                          type="button"
-                          class="tree-action-button session-del"
-                          :class="isShiftPressed ? 'danger' : 'archive'"
-                          :title="
-                            isShiftPressed
-                              ? 'Delete session permanently'
-                              : 'Archive session (with Shift key to delete permanently)'
-                          "
-                          @click.stop.prevent="handleSessionAction(session.id, close)"
+                        <div class="tree-actions">
+                          <button
+                            type="button"
+                            class="tree-action-button new-session"
+                            title="New session"
+                            @click.stop="
+                              handleCreateSessionIn(worktree.directory, sandbox.directory, close)
+                            "
+                          >
+                            <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
+                          </button>
+                          <button
+                            v-if="worktree.projectId !== 'global'"
+                            type="button"
+                            class="tree-action-button fork"
+                            title="Create a new sandbox"
+                            :disabled="disabledActions?.includes('worktree')"
+                            @click.stop="handleCreateWorktree(sandbox.directory, close)"
+                          >
+                            <Icon icon="lucide:git-branch-plus" :width="16" :height="16" />
+                          </button>
+                          <button
+                            v-if="
+                              canDeleteSandbox(sandbox.directory, worktree.directory) &&
+                              worktree.projectId !== 'global'
+                            "
+                            type="button"
+                            class="tree-action-button danger"
+                            :disabled="disabledActions?.includes('worktree')"
+                            @click.stop="handleSandboxDelete(sandbox.directory, close)"
+                          >
+                            <Icon icon="lucide:trash-2" :width="16" :height="16" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        v-for="session in sandbox.sessions"
+                        :key="session.id"
+                        class="tree-session-row"
+                      >
+                        <DropdownItem
+                          :href="sessionShareHref(worktree.projectId, session.id)"
+                          :value="{
+                            projectId: worktree.projectId,
+                            worktree: worktree.directory,
+                            directory: sandbox.directory,
+                            sessionId: session.id,
+                          }"
+                          :active="session.id === selectedSessionId"
                         >
-                          <Icon
-                            :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'"
-                            :width="16"
-                            :height="16"
-                          />
-                        </button>
-                      </DropdownItem>
+                          <div class="tree-session-main">
+                            <span class="session-status-icon" :title="session.status">{{
+                              sessionStatusIcon(session.status)
+                            }}</span>
+                            <div class="session-info">
+                              <div class="session-info-top">
+                                <span class="session-title">{{
+                                  session.title || session.slug || session.id
+                                }}</span>
+                                <span v-if="session.archivedAt" class="session-badge-archived"
+                                  >archived</span
+                                >
+                              </div>
+                              <span
+                                v-if="session.timeCreated || session.timeUpdated"
+                                class="session-time"
+                              >
+                                {{ formatSessionMetaTime(session) }}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            v-if="!session.archivedAt"
+                            type="button"
+                            class="tree-action-button session-del"
+                            :class="isShiftPressed ? 'danger' : 'archive'"
+                            :disabled="!isShiftPressed && disabledActions?.includes('archive')"
+                            :title="
+                              isShiftPressed
+                                ? 'Delete session permanently'
+                                : 'Archive session (with Shift key to delete permanently)'
+                            "
+                            @click.stop.prevent="handleSessionAction(session.id, close)"
+                          >
+                            <Icon
+                              :icon="isShiftPressed ? 'lucide:trash-2' : 'lucide:archive'"
+                              :width="16"
+                              :height="16"
+                            />
+                          </button>
+                        </DropdownItem>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="tree-footer">
-                <button
-                  type="button"
-                  class="tree-footer-button"
-                  @click="handleOpenDirectory(close)"
-                >
-                  <Icon icon="lucide:folder-open" :width="14" :height="14" />
-                  Open project…
-                </button>
+                <div class="tree-footer">
+                  <button
+                    v-if="hasMoreSessions"
+                    type="button"
+                    class="tree-footer-button"
+                    :disabled="loadingSessions"
+                    @click="$emit('load-more')"
+                  >
+                    Load more sessions…
+                  </button>
+                  <button
+                    type="button"
+                    class="tree-footer-button"
+                    @click="handleOpenDirectory(close)"
+                  >
+                    <Icon icon="lucide:folder-open" :width="14" :height="14" />
+                    Open project…
+                  </button>
+                </div>
               </div>
-            </div>
-          </template>
-        </Dropdown>
-
-        <button
-          type="button"
-          class="control-button new-session-button"
-          :disabled="!selectedSessionId"
-          @click="$emit('new-session')"
-          title="New session (Ctrl-;)"
-        >
-          <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
-        </button>
-        <button
-          type="button"
-          class="control-button open-shell-button"
-          :disabled="!activeDirectory"
-          @click="$emit('open-shell')"
-          title="Open shell"
-        >
-          <Icon icon="lucide:terminal" :width="16" :height="16" />
-        </button>
+            </template>
+          </Dropdown>
+        </slot>
+        <div class="top-right">
+          <button
+            type="button"
+            class="control-button new-session-button"
+            :disabled="!activeDirectory"
+            @click="$emit('new-session')"
+            title="New session (Ctrl-;)"
+          >
+            <Icon icon="lucide:message-circle-plus" :width="16" :height="16" />
+          </button>
+          <button
+            type="button"
+            class="control-button open-shell-button"
+            :disabled="!activeDirectory || disabledActions?.includes('shell')"
+            @click="$emit('open-shell')"
+            title="Open shell"
+          >
+            <Icon icon="lucide:terminal" :width="16" :height="16" />
+          </button>
+        </div>
       </div>
-      <div class="top-right">
+      <div class="top-corner">
         <a
           href="https://github.com/xenodrive/vis/"
           target="_blank"
@@ -316,6 +337,7 @@ import DropdownSearch from './Dropdown/Search.vue';
 
 declare const __GIT_REVISION__: string;
 const gitRevision = typeof __GIT_REVISION__ !== 'undefined' ? __GIT_REVISION__ : 'dev';
+const logoUrl = `${import.meta.env.BASE_URL}logo.svg`;
 
 export type TopPanelSession = {
   id: string;
@@ -362,6 +384,9 @@ const props = defineProps<{
   activeDirectory: string;
   selectedSessionId: string;
   homePath?: string;
+  disabledActions?: string[];
+  hasMoreSessions?: boolean;
+  loadingSessions?: boolean;
 }>();
 
 const notifications = computed(() => props.notificationSessions ?? []);
@@ -370,6 +395,7 @@ const totalNotificationCount = computed(() =>
 );
 
 const emit = defineEmits<{
+  (event: 'load-more'): void;
   (event: 'select-notification'): void;
   (event: 'select-session', payload: SessionSelectPayload): void;
   (event: 'create-worktree-from', worktree: string): void;
@@ -669,7 +695,8 @@ function handleOpenDirectory(close: () => void) {
 }
 
 .top-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 840px) minmax(0, 1fr);
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -677,6 +704,8 @@ function handleOpenDirectory(close: () => void) {
 }
 
 .top-left {
+  align-items: center;
+  min-width: 0;
   flex: 0 0 auto;
   font-size: 15px;
   font-weight: 700;
@@ -685,18 +714,55 @@ function handleOpenDirectory(close: () => void) {
 }
 
 .top-center {
-  flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 680px) 72px;
   align-items: center;
   gap: 8px;
 }
 
 .top-right {
+  gap: 8px;
   flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+}
+.top-corner {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#location-picker {
+  min-width: 0;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+#location-picker :deep(.ui-dropdown) {
+  max-width: 240px;
+}
+.top-center > .notification-button {
+  justify-self: end;
+}
+@media (max-width: 1800px) {
+  .top-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .top-left {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .top-corner {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .top-center {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: min(840px, 100%);
+    justify-self: center;
+  }
 }
 
 .tree-dropdown-root {

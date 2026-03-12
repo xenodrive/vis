@@ -16,26 +16,25 @@ const origin = window.location.origin;
 const markdown = `\
 # How To Use \`OpenCode Visualizer\`
 
-Start the OpenCode server with CORS enabled:
+**1. Configure CORS**
+
+Allow this vis origin in the OpenCode service's CORS settings:
 
 \`\`\`bash
-opencode serve --cors ${origin}
+opencode2 service set cors ${origin}
 \`\`\`
 
-or add this to your \`.config/opencode/opencode.json\`:
+**2. Get connection details**
 
-\`\`\`json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "server": {
-    "cors": ["${origin}"]
-  }
-}
-\`\`\`
-and then:
+Start or reuse the service and display its connection details:
 \`\`\`bash
-opencode serve
+opencode2 pair
 \`\`\`
+
+**3. Connect to OpenCode**
+
+Enter the displayed URL and Password above, then select **Connect**.
+
 `;
 </script>
 

@@ -171,7 +171,7 @@
             <Dropdown
               v-model="modeValue"
               :placeholder="hasAgentOptions ? 'Select agent' : 'Loading agents...'"
-              :disabled="props.disabled || !hasAgentOptions"
+              :disabled="settingsLocked || !hasAgentOptions"
               button-class="input-control input-dropdown-button"
               popup-class="input-dropdown-popup"
               auto-close
@@ -208,7 +208,7 @@
             <Dropdown
               v-model="modelValue"
               :placeholder="hasModelOptions ? 'Select model' : 'Loading models...'"
-              :disabled="props.disabled || !hasModelOptions"
+              :disabled="settingsLocked || !hasModelOptions"
               button-class="input-control input-dropdown-button"
               popup-class="input-dropdown-popup"
               auto-close
@@ -272,7 +272,7 @@
           <Dropdown
             v-model="thinkingKeyValue"
             :placeholder="hasThinkingOptions ? 'Select variant' : 'Loading...'"
-            :disabled="props.disabled || !hasThinkingOptions"
+            :disabled="settingsLocked || !hasThinkingOptions"
             button-class="input-control input-dropdown-button"
             popup-class="input-dropdown-popup"
             auto-close
@@ -297,6 +297,15 @@
           </Dropdown>
         </div>
         <div class="input-actions">
+          <button
+            v-if="pendingCount"
+            type="button"
+            class="input-button"
+            title="Pending inputs"
+            @click="$emit('show-pending')"
+          >
+            {{ pendingCount }}
+          </button>
           <button
             type="button"
             class="input-button suppress-button"
@@ -345,7 +354,7 @@
             <Icon icon="ph:stop-fill" :width="16" :height="16" />
           </button>
           <button
-            v-else
+            v-if="!isThinking || messageValue.trim() || attachments.length"
             type="button"
             class="input-button primary send-button"
             :disabled="props.disabled || !canSend"
@@ -402,9 +411,11 @@ const props = defineProps<{
   agentColor?: string;
   resolveAgentColor?: (agent?: string) => string;
   disabled?: boolean;
+  pendingCount?: number;
 }>();
 
 const emit = defineEmits<{
+  (event: 'show-pending'): void;
   (event: 'update:message-input', value: string): void;
   (event: 'update:selected-mode', value: string): void;
   (event: 'update:selected-model', value: string): void;
@@ -429,6 +440,7 @@ const messageValue = computed({
   get: () => props.messageInput,
   set: (value) => emit('update:message-input', value),
 });
+const settingsLocked = computed(() => props.disabled || props.isThinking);
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -683,7 +695,7 @@ function prevCyclicIndex(current: string | undefined, options: Array<string | un
 }
 
 function cycleAgent(direction: 'next' | 'prev') {
-  if (!props.hasAgentOptions) return false;
+  if (settingsLocked.value || !props.hasAgentOptions) return false;
   const options = (props.agentOptions ?? []).map((option) => option.id);
   const nextIndex =
     direction === 'next'
@@ -695,7 +707,7 @@ function cycleAgent(direction: 'next' | 'prev') {
 }
 
 function cycleVariant(direction: 'next' | 'prev') {
-  if (!props.hasThinkingOptions) return false;
+  if (settingsLocked.value || !props.hasThinkingOptions) return false;
   const options = props.thinkingOptions ?? [];
   const nextIndex =
     direction === 'next'
@@ -707,7 +719,7 @@ function cycleVariant(direction: 'next' | 'prev') {
 }
 
 function openModelPicker() {
-  if (!props.hasModelOptions) return false;
+  if (settingsLocked.value || !props.hasModelOptions) return false;
   const root = modelDropdownRef.value;
   if (!root) return false;
   const button = root.querySelector('button');
@@ -795,24 +807,24 @@ function handleKeydown(event: KeyboardEvent) {
     return;
   }
   if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    const direction: 'next' | 'prev' = event.shiftKey ? 'prev' : 'next';
-    if (!cycleAgent(direction)) return;
     event.preventDefault();
+    const direction: 'next' | 'prev' = event.shiftKey ? 'prev' : 'next';
+    cycleAgent(direction);
     return;
   }
   if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === '.') {
-    if (!cycleVariant('next')) return;
     event.preventDefault();
+    cycleVariant('next');
     return;
   }
   if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === ',') {
-    if (!cycleVariant('prev')) return;
     event.preventDefault();
+    cycleVariant('prev');
     return;
   }
   if (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'm') {
-    if (!openModelPicker()) return;
     event.preventDefault();
+    openModelPicker();
     return;
   }
   // Ctrl+Enter: always send
@@ -880,12 +892,16 @@ function handleDrop(event: DragEvent) {
 
 const modeValue = computed({
   get: () => props.selectedMode,
-  set: (value) => emit('update:selected-mode', value),
+  set: (value) => {
+    if (!settingsLocked.value) emit('update:selected-mode', value);
+  },
 });
 
 const modelValue = computed({
   get: () => props.selectedModel,
-  set: (value) => emit('update:selected-model', value),
+  set: (value) => {
+    if (!settingsLocked.value) emit('update:selected-model', value);
+  },
 });
 
 function findAgent(id: unknown): AgentOption | undefined {
@@ -927,6 +943,7 @@ const selectedThinkingChoice = computed<ThinkingChoice | undefined>(() =>
 const thinkingKeyValue = computed({
   get: () => selectedThinkingChoice.value?.key,
   set: (key: string) => {
+    if (settingsLocked.value) return;
     const choice = thinkingChoices.value.find((c) => c.key === key);
     emit('update:selected-thinking', choice?.value);
   },

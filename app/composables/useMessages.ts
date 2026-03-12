@@ -13,6 +13,7 @@ import type {
   MessagePartUpdatedPacket,
   MessageUpdatedPacket,
 } from '../types/sse';
+import { diffSourceFromFullPatch } from '../utils/diffSources';
 import type { SessionScope } from './useGlobalEvents';
 import { useDeltaAccumulator } from './useDeltaAccumulator';
 
@@ -82,12 +83,12 @@ function normalizeTokens(value: unknown): MessageUsage['tokens'] | undefined {
 
 function getProviderId(info?: MessageInfo): string | undefined {
   if (!info) return undefined;
-  return info.role === 'assistant' ? asString(info.providerID) : asString(info.model.providerID);
+  return info.role === 'assistant' ? asString(info.providerID) : asString(info.model?.providerID);
 }
 
 function getModelId(info?: MessageInfo): string | undefined {
   if (!info) return undefined;
-  return info.role === 'assistant' ? asString(info.modelID) : asString(info.model.modelID);
+  return info.role === 'assistant' ? asString(info.modelID) : asString(info.model?.modelID);
 }
 
 function normalizeUsage(info?: MessageInfo): MessageUsage | undefined {
@@ -139,7 +140,7 @@ const roots = computed(() => {
       result.push(info);
       continue;
     }
-    const parent = messages.value.get(info.parentID)?.value.info;
+    const parent = info.parentID ? messages.value.get(info.parentID)?.value.info : undefined;
     if (!parent) result.push(info);
   }
   return result.sort(byTimeThenId);
@@ -160,7 +161,7 @@ const childrenByParent = computed(() => {
   const index = new Map<string, MessageInfo[]>();
   for (const messageRef of messages.value.values()) {
     const info = messageRef.value.info;
-    if (!info || info.role !== 'assistant') continue;
+    if (!info || info.role !== 'assistant' || !info.parentID) continue;
     let list = index.get(info.parentID);
     if (!list) {
       list = [];
@@ -318,12 +319,13 @@ function getDiffs(id: string): MessageDiffEntry[] | undefined {
   if (!info || info.role !== 'user' || !Array.isArray(info.summary?.diffs)) return undefined;
   const result: MessageDiffEntry[] = [];
   for (const diff of info.summary.diffs) {
-    if (!diff.file) continue;
+    if (!diff.file || !diff.patch) continue;
+    const source = diffSourceFromFullPatch(diff.file, diff.patch);
+    if (!source) continue;
     result.push({
-      file: diff.file,
-      diff: '',
-      before: diff.before,
-      after: diff.after,
+      file: source.file,
+      before: source.before,
+      after: source.after,
     });
   }
   return result.length > 0 ? result : undefined;
@@ -432,6 +434,30 @@ function reset() {
   triggerRef(messages);
 }
 
+/** Replace the display projection without changing window or thread component contracts. */
+function setPresentation(entries: Array<{ info: MessageInfo; parts: MessagePart[] }>) {
+  const ids = new Set(entries.map((entry) => entry.info.id));
+  for (const id of messages.value.keys()) {
+    if (!ids.has(id)) messages.value.delete(id);
+  }
+  parts.clear();
+  for (const entry of entries) {
+    const messageRef = ensureMessage(entry.info.id, false);
+    messageRef.value = {
+      info: entry.info,
+      parts: new Set(
+        entry.parts.map((part) => {
+          const partRef = shallowRef(part);
+          parts.set(partLookupKey(part.messageID, part.id), partRef);
+          return partRef;
+        }),
+      ),
+    };
+    triggerRef(messageRef);
+  }
+  triggerRef(messages);
+}
+
 function dispose() {
   for (const unsub of unsubs) unsub();
 }
@@ -462,6 +488,7 @@ export function useMessages() {
     updateMessage,
     updatePart,
     loadHistory,
+    setPresentation,
     reset,
     dispose,
     bindScope,

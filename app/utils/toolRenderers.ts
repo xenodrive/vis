@@ -148,7 +148,7 @@ export function extractPatch(
       : undefined;
 
   // ToolStateCompleted guarantees metadata with files array.
-  // Each file: { relativePath, filePath, before, after, ... }
+  // Each file: { relativePath, filePath, patch, before, after, ... }
   const files = Array.isArray(metadata?.files) ? (metadata.files as unknown[]) : [];
   if (files.length === 0) return null;
 
@@ -163,10 +163,12 @@ export function extractPatch(
         undefined;
       const before = typeof file.before === 'string' ? file.before : '';
       const after = typeof file.after === 'string' ? file.after : '';
+      const diff = typeof file.patch === 'string' ? file.patch : '';
       return {
         path: relativePath,
         code: before,
         after,
+        diff,
         isWrite: true,
         callId: `${baseCallId}:${index}`,
         toolStatus: status,

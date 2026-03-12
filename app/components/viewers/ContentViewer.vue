@@ -122,6 +122,10 @@ const isMarkdown = computed(() => {
 
 const isBitmapImage = computed(() => BITMAP_EXTENSIONS.has(pathExt.value ?? ''));
 const canShowAsImage = computed(() => IMAGE_EXTENSIONS.has(pathExt.value ?? ''));
+const isBinaryFile = computed(
+  () =>
+    props.fileContent === undefined && props.binaryBase64 !== undefined && !canShowAsImage.value,
+);
 
 const normalizedBinaryContent = computed(() => decodeBase64ToBinaryString(props.binaryBase64));
 const effectiveFileContent = computed(() => props.fileContent ?? normalizedBinaryContent.value);
@@ -146,10 +150,10 @@ const effectiveRawHtml = computed(() => {
 const availableModes = computed<Array<{ id: ModeId; label: string }>>(() => {
   const modes: Array<{ id: ModeId; label: string }> = [];
   if (effectiveImageSrc.value) modes.push({ id: 'image', label: 'Image' });
-  if (isMarkdown.value && effectiveFileContent.value != null) {
+  if (isMarkdown.value && effectiveFileContent.value != null && !isBinaryFile.value) {
     modes.push({ id: 'rendered', label: 'Rendered' });
     modes.push({ id: 'source', label: 'Source' });
-  } else if (effectiveFileContent.value != null && !isBitmapImage.value) {
+  } else if (effectiveFileContent.value != null && !isBitmapImage.value && !isBinaryFile.value) {
     modes.push({ id: 'source', label: 'Source' });
   }
   if (effectiveRawHtml.value) modes.push({ id: 'hex', label: 'Hex' });
@@ -158,6 +162,7 @@ const availableModes = computed<Array<{ id: ModeId; label: string }>>(() => {
 });
 
 const preferredDefaultMode = computed<ModeId>(() => {
+  if (isBinaryFile.value) return 'hex';
   if (canShowAsImage.value) return 'image';
   if (isMarkdown.value) return 'rendered';
   return 'source';

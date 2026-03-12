@@ -66,8 +66,6 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
-import * as opencodeApi from '../utils/opencode';
-import { splitFileContentDirectoryAndPath } from '../utils/path';
 
 type FileNode = {
   name: string;
@@ -86,6 +84,7 @@ type DropdownHandle = {
 const props = defineProps<{
   open: boolean;
   homePath?: string;
+  listDirectory: (directory: string, signal: AbortSignal) => Promise<FileNode[]>;
 }>();
 
 const emit = defineEmits<{
@@ -236,13 +235,10 @@ async function fetchDirectory(dir: string) {
 
   try {
     const cleanDir = dir.replace(/\/+$/, '') || '/';
-    const [data, gitEntries] = await Promise.all([
-      listDirectory(cleanDir, controller.signal),
-      listDirectory(`${cleanDir}/.git`, controller.signal),
-    ]);
+    const data = await props.listDirectory(cleanDir, controller.signal);
     if (requestId !== fetchRequestId) return;
     allEntries.value = data;
-    hasGitDirectory.value = gitEntries.length > 0;
+    hasGitDirectory.value = data.some((entry) => entry.name === '.git');
   } catch (err) {
     if ((err as Error).name === 'AbortError') return;
     if (requestId !== fetchRequestId) return;
@@ -252,18 +248,6 @@ async function fetchDirectory(dir: string) {
   } finally {
     if (requestId === fetchRequestId) isLoading.value = false;
   }
-}
-
-async function listDirectory(dir: string, signal: AbortSignal) {
-  const { directory, path } = splitFileContentDirectoryAndPath(dir, null);
-  const data = (await opencodeApi.listFiles(
-    {
-      directory,
-      path,
-    },
-    { signal },
-  )) as FileNode[];
-  return Array.isArray(data) ? data : [];
 }
 
 // ---------------------------------------------------------------------------

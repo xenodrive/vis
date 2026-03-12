@@ -14,6 +14,7 @@
               type="button"
               class="tree-branch-label tree-branch-picker-trigger"
               :title="branchTitle"
+              :disabled="!runShellCommand"
               @click.stop="onBranchPickerToggle"
             >
               <Icon :icon="branchIcon" :width="13" :height="13" class="tree-branch-icon" />
@@ -241,19 +242,10 @@
         <button
           type="button"
           class="tree-tab"
-          :class="{ 'is-active': viewMode === 'staged' }"
-          role="tab"
-          :aria-selected="viewMode === 'staged'"
-          @click="setViewMode('staged')"
-        >
-          Staged
-        </button>
-        <button
-          type="button"
-          class="tree-tab"
           :class="{ 'is-active': viewMode === 'changes' }"
           role="tab"
           :aria-selected="viewMode === 'changes'"
+          title="All uncommitted changes, including staged changes"
           @click="setViewMode('changes')"
         >
           Changes
@@ -434,12 +426,6 @@ const pullMenuOpen = ref(false);
 const expanded = computed(() => new Set(props.expandedPaths));
 const branchIcon = computed(() => (props.branchInfo ? 'lucide:git-branch' : 'lucide:folder'));
 const branchName = computed(() => props.branchInfo?.branch ?? props.directoryName ?? 'no git');
-const upstreamRemote = computed(() => {
-  const upstream = props.branchInfo?.upstream;
-  if (!upstream) return 'origin';
-  const slashIdx = upstream.indexOf('/');
-  return slashIdx > 0 ? upstream.slice(0, slashIdx) : 'origin';
-});
 
 const branchTitle = computed(() => {
   const info = props.branchInfo;

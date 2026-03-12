@@ -12,16 +12,7 @@
     </button>
     <div v-else class="side-body">
       <div class="side-tabs">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          type="button"
-          class="side-tab"
-          :class="{ 'is-active': activeTab === tab.id }"
-          @click="emit('change-tab', tab.id)"
-        >
-          {{ tab.label }}
-        </button>
+        <div class="side-directory" :title="treeDirectoryName">{{ treeDirectoryName }}</div>
         <button
           type="button"
           class="side-toggle side-toggle-inline"
@@ -32,9 +23,7 @@
           <Icon icon="lucide:chevron-left" width="14" height="14" />
         </button>
       </div>
-      <TodoList v-if="activeTab === 'todo'" :sessions="todoSessions" />
       <TreeView
-        v-else
         :root-nodes="treeNodes"
         :expanded-paths="expandedTreePaths"
         :selected-path="selectedTreePath"
@@ -61,7 +50,6 @@
 <script setup lang="ts">
 import { toRefs } from 'vue';
 import { Icon } from '@iconify/vue';
-import TodoList from './TodoList.vue';
 import type { BranchEntry } from '../composables/useFileTree';
 import TreeView, {
   type GitBranchInfo,
@@ -70,25 +58,8 @@ import TreeView, {
   type TreeNode,
 } from './TreeView.vue';
 
-type TodoItem = {
-  content: string;
-  status: string;
-  priority: string;
-};
-
-type TodoPanelSession = {
-  sessionId: string;
-  title: string;
-  isSubagent: boolean;
-  todos: TodoItem[];
-  loading: boolean;
-  error: string | undefined;
-};
-
 const props = defineProps<{
   collapsed: boolean;
-  activeTab: 'todo' | 'tree';
-  todoSessions: TodoPanelSession[];
   treeNodes: TreeNode[];
   expandedTreePaths: string[];
   selectedTreePath?: string;
@@ -105,7 +76,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'toggle-collapse'): void;
-  (event: 'change-tab', value: 'todo' | 'tree'): void;
   (event: 'toggle-dir', path: string): void;
   (event: 'select-file', path: string): void;
   (event: 'open-diff', payload: { path: string; staged: boolean }): void;
@@ -114,15 +84,8 @@ const emit = defineEmits<{
   (event: 'reload'): void;
 }>();
 
-const tabs = [
-  { id: 'todo' as const, label: 'TODO' },
-  { id: 'tree' as const, label: 'TREE' },
-];
-
 const {
   collapsed,
-  activeTab,
-  todoSessions,
   treeNodes,
   expandedTreePaths,
   selectedTreePath,
@@ -139,6 +102,16 @@ const {
 </script>
 
 <style scoped>
+.side-directory {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cbd5e1;
+  font-size: 12px;
+  align-self: center;
+}
 .side-panel {
   position: relative;
   width: 100%;

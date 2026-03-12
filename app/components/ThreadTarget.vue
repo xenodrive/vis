@@ -1,5 +1,6 @@
 <template>
-  <div v-if="hasTarget" class="ib-round-target">
+  <div v-if="prefix || hasTarget" class="ib-round-target">
+    <span v-if="prefix" aria-hidden="true">{{ prefix }}</span>
     <span v-if="target.agent" class="ib-target-agent" :style="agentStyle">
       {{ target.agent }}
     </span>
@@ -22,6 +23,7 @@ import type { ThreadTarget } from '../types/message';
 
 const props = defineProps<{
   target: ThreadTarget;
+  prefix?: string;
   agentStyle: Record<string, string>;
 }>();
 

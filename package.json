@@ -1,6 +1,6 @@
 {
   "name": "@xenodrive/vis",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Vis - OpenCode Visualizer",
   "keywords": [
     "opencode",
@@ -12,11 +12,7 @@
   "repository": {
     "url": "https://github.com/xenodrive/vis"
   },
-  "bin": {
-    "vis": "server.js"
-  },
   "files": [
-    "server.js",
     "dist"
   ],
   "type": "module",
@@ -29,31 +25,31 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.9",
-    "hono": "^4.12.3"
+    "@opencode-ai/client": "0.0.0-beta-19192",
+    "ignore": "^7.0.8"
   },
   "devDependencies": {
-    "@iconify/vue": "^5.0.0",
+    "@iconify/vue": "^5.0.1",
     "@kikuchan/hexdump": "0.1.0-alpha.9",
-    "@shikijs/markdown-it": "^3.22.0",
-    "@shikijs/transformers": "^3.22.0",
-    "@tailwindcss/postcss": "^4.1.18",
-    "@tailwindcss/typography": "^0.5.19",
-    "@types/markdown-it": "^14.1.2",
-    "@types/node": "^25.2.3",
-    "@vitejs/plugin-vue": "^6.0.4",
+    "@shikijs/markdown-it": "^3.23.0",
+    "@shikijs/transformers": "^3.23.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/typography": "^0.5.20",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^25.9.5",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@xterm/xterm": "^6.0.0",
-    "autoprefixer": "^10.4.24",
-    "markdown-it": "^14.1.1",
+    "autoprefixer": "^10.5.5",
+    "markdown-it": "^14.3.1",
     "oxfmt": "^0.32.0",
-    "oxlint": "^1.47.0",
+    "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^0.12.2",
-    "postcss": "^8.5.6",
-    "shiki": "^3.22.0",
-    "tailwindcss": "^4.1.18",
-    "vite": "^7.3.1",
-    "vue": "^3.5.28",
-    "vue-tsc": "^3.2.4"
+    "postcss": "^8.5.28",
+    "shiki": "^3.23.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6",
+    "vue": "^3.5.42",
+    "vue-tsc": "^3.3.11"
   },
   "packageManager": "pnpm@10.29.3"
 }

@@ -22,7 +22,7 @@ export function useInitialRenderTracking(options: UseInitialRenderTrackingOption
   function collectInitialRenderKeys(): Set<string> {
     const keys = new Set<string>();
     options.visibleRoots.value.forEach((root) => {
-      keys.add(options.getThreadUserRenderKey(root));
+      if (root.role === 'user') keys.add(options.getThreadUserRenderKey(root));
       if (options.hasAssistantMessages(root)) keys.add(options.getThreadAssistantRenderKey(root));
     });
     return keys;

@@ -96,8 +96,7 @@ export type FilePartSource = FileSource | SymbolSource | ResourceSource;
 /** Snapshot.FileDiff */
 export type FileDiff = {
   file: string;
-  before: string;
-  after: string;
+  patch: string;
   additions: number;
   deletions: number;
   status?: 'added' | 'deleted' | 'modified';
@@ -264,8 +263,8 @@ export type UserMessageInfo = {
     body?: string;
     diffs: FileDiff[];
   };
-  agent: string;
-  model: { providerID: string; modelID: string };
+  agent?: string;
+  model?: { providerID: string; modelID: string };
   system?: string;
   tools?: Record<string, boolean>;
   variant?: string;
@@ -278,7 +277,7 @@ export type AssistantMessageInfo = {
   role: 'assistant';
   time: { created: number; completed?: number };
   error?: MessageError;
-  parentID: string;
+  parentID?: string;
   modelID: string;
   providerID: string;
   /** @deprecated */
@@ -286,8 +285,8 @@ export type AssistantMessageInfo = {
   agent: string;
   path: { cwd: string; root: string };
   summary?: boolean;
-  cost: number;
-  tokens: {
+  cost?: number;
+  tokens?: {
     total?: number;
     input: number;
     output: number;
@@ -327,6 +326,7 @@ export type ReasoningPart = PartBase & {
 };
 
 export type ToolPart = PartBase & {
+  v2?: import('@opencode-ai/client').SessionMessageAssistantTool;
   type: 'tool';
   callID: string;
   tool: string;

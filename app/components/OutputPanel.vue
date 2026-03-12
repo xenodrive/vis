@@ -13,6 +13,15 @@
           @touchmove="$emit('touchmove')"
         >
           <div ref="contentEl" class="output-panel-content" @click="handleContentClick">
+            <button
+              v-if="hasMoreMessages"
+              type="button"
+              class="history-page-button"
+              :disabled="loadingHistory"
+              @click="emit('load-more')"
+            >
+              {{ loadingHistory ? 'Loading older messages…' : 'Load older messages…' }}
+            </button>
             <div
               v-if="initialRenderTrackingActive"
               class="absolute w-full h-full m-auto flex justify-center items-center"
@@ -24,9 +33,11 @@
               <ThreadBlock
                 v-show="!initialRenderTrackingActive && shouldRenderRoot(root)"
                 :root="root"
+                :history-actions-disabled="historyActionsDisabled"
                 :theme="theme"
                 :files-with-basenames="filesWithBasenames"
                 :is-reverted-preview="isRevertedPreview(root)"
+                :session-agent="sessionAgent"
                 :resolve-agent-color="resolveAgentColor"
                 :resolve-model-meta="resolveModelMeta"
                 :compute-context-percent="computeContextPercent"
@@ -42,6 +53,8 @@
                 @message-rendered="handleMessageRendered"
               />
             </template>
+
+            <slot name="pending-inputs" :files="filesWithBasenames" :theme="theme" />
 
             <FileRefPopup ref="fileRefPopupRef" :files="files" @open-file="handlePopupOpenFile" />
           </div>
@@ -59,7 +72,7 @@
       </div>
 
       <StatusBar
-        :thinking-display-text="thinkingDisplayText"
+        :thinking-display-text="activityStatus || thinkingDisplayText"
         :status-text="statusText"
         :is-status-error="isStatusError"
         :is-retry-status="!!isRetryStatus"
@@ -74,7 +87,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FileRefPopup from './FileRefPopup.vue';
 import StatusBar from './StatusBar.vue';
 import ThreadBlock from './ThreadBlock.vue';
-import { useFileTree } from '../composables/useFileTree';
 import { useInitialRenderTracking } from '../composables/useInitialRenderTracking';
 import { useMessages } from '../composables/useMessages';
 import { useAssistantPreRenderer } from '../composables/useAssistantPreRenderer';
@@ -90,13 +102,20 @@ import type { MessageInfo } from '../types/sse';
 const msg = useMessages();
 
 const props = defineProps<{
+  files: string[];
+  fileCacheVersion: number;
+  historyActionsDisabled?: boolean;
+  hasMoreMessages?: boolean;
+  loadingHistory?: boolean;
   isFollowing: boolean;
   statusText: string;
+  activityStatus?: string;
   isStatusError: boolean;
   isThinking: boolean;
   isRetryStatus?: boolean;
   busyDescendantCount?: number;
   theme: string;
+  sessionAgent?: string;
   resolveAgentColor?: (agent?: string) => string;
   resolveModelMeta?: (modelPath?: string) => ModelMeta | undefined;
   computeContextPercent?: (
@@ -115,6 +134,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: 'load-more'): void;
   (event: 'scroll'): void;
   (event: 'wheel', eventArg: WheelEvent): void;
   (event: 'touchmove'): void;
@@ -132,7 +152,9 @@ const emit = defineEmits<{
   (event: 'initial-render-complete'): void;
 }>();
 
-const visibleRoots = computed(() => msg.roots.value);
+const visibleRoots = computed(() =>
+  msg.roots.value.filter((root) => root.role === 'user' || hasAssistantMessages(root)),
+);
 
 const revertedPreviewRootId = computed(() => {
   const revert = props.sessionRevert;
@@ -144,7 +166,8 @@ const revertedPreviewRootId = computed(() => {
   return null;
 });
 
-const { files, fileCacheVersion } = useFileTree();
+const files = computed(() => props.files);
+const fileCacheVersion = computed(() => props.fileCacheVersion);
 
 const filesWithBasenames = computed(() => {
   const set = new Set<string>();
@@ -168,8 +191,7 @@ function hasAssistantMessages(root: MessageInfo): boolean {
 
 function getFinalAnswerContent(root: MessageInfo): string {
   const final = getFinalAnswer(root);
-  if (!final) return '';
-  return msg.getTextContent(final.id);
+  return final ? msg.getTextContent(final.id) : '';
 }
 
 function getThreadUserRenderKey(root: MessageInfo): string {
@@ -308,6 +330,33 @@ defineExpose({ panelEl });
 </script>
 
 <style scoped>
+.history-page-button {
+  display: block;
+  margin: 8px auto 16px;
+  padding: 6px 12px;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.history-page-button:hover:not(:disabled) {
+  background: #334155;
+  border-color: #94a3b8;
+}
+
+.history-page-button:focus-visible {
+  outline: 2px solid #94a3b8;
+  outline-offset: 2px;
+}
+
+.history-page-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .output-panel-root {
   display: flex;
   flex-direction: column;

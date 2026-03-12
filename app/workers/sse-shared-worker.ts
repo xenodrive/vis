@@ -134,8 +134,7 @@ function isFileDiff(value: unknown): boolean {
   if (!record) return false;
   return (
     Boolean(asString(record.file)) &&
-    typeof record.before === 'string' &&
-    typeof record.after === 'string' &&
+    typeof record.patch === 'string' &&
     asNumber(record.additions) !== undefined &&
     asNumber(record.deletions) !== undefined
   );

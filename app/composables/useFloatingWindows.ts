@@ -182,9 +182,7 @@ export function useFloatingWindows() {
       ...opts,
       key,
       time: Date.now(),
-      zIndex: existing
-        ? existing.zIndex
-        : nextZIndex(isManualTier(key, opts.closable ?? existing?.closable)),
+      zIndex: existing ? existing.zIndex : nextZIndex(isManualTier(key, opts.closable)),
     } as FloatingWindowEntry;
 
     // When updating an existing entry, merge props instead of replacing
@@ -258,7 +256,7 @@ export function useFloatingWindows() {
     // Execute afterOpen hook
     if (merged.afterOpen) {
       setTimeout(() => {
-        const el = document.querySelector(`[data-floating-key="${key}"]`);
+        const el = document.querySelector(`[data-floating-key="${CSS.escape(key)}"]`);
         if (el) merged.afterOpen!(el as HTMLElement);
       }, 0);
     }
@@ -266,7 +264,7 @@ export function useFloatingWindows() {
     if (shouldFocusOnOpen) {
       setTimeout(() => {
         const body = document.querySelector(
-          `[data-floating-key="${key}"] .floating-window-body`,
+          `[data-floating-key="${CSS.escape(key)}"] .floating-window-body`,
         ) as HTMLElement | null;
         if (!body) return;
         body.focus();
@@ -380,7 +378,7 @@ export function useFloatingWindows() {
     }
 
     if (entry.beforeClose) {
-      const el = document.querySelector(`[data-floating-key="${key}"]`);
+      const el = document.querySelector(`[data-floating-key="${CSS.escape(key)}"]`);
       await entry.beforeClose(el as HTMLElement);
     }
 

@@ -1,119 +1,116 @@
 <template>
   <div class="thread-block" :class="{ 'is-reverted-preview': isRevertedPreview }">
-    <button
-      v-if="isRevertedPreview"
-      type="button"
-      class="ib-action ib-action-undo ib-top-right"
-      @click="confirmUndoRevert()"
+    <UserMessageBox
+      v-if="root.role === 'user'"
+      class="thread-user"
+      :content="getMessageContent(root)"
+      :agent-color="getUserAgentColor()"
+      :theme="theme"
+      :files="filesWithBasenames"
+      :reverted="isRevertedPreview"
+      @rendered="emit('message-rendered', getThreadUserRenderKey(root))"
     >
-      UNDO
-    </button>
-    <button
-      v-else-if="root.role === 'user' && root.sessionID"
-      type="button"
-      class="ib-action ib-top-right"
-      @click="confirmFork()"
-    >
-      FORK
-    </button>
-
-    <div class="thread-user" :style="getUserBoxStyle()">
-      <div
-        v-if="root.role === 'user'"
-        class="ib-msg-block ib-msg-user"
-        :class="{ 'ib-msg-user-reverted': isRevertedPreview }"
-      >
-        <div class="ib-msg-row">
-          <MessageViewer
-            class="message-viewer-context-user"
-            :key="`user-${root.id}`"
-            :code="getMessageContent(root)"
-            :lang="'markdown'"
-            :theme="theme"
-            :files="filesWithBasenames"
-            copy-button
-            @rendered="emit('message-rendered', getThreadUserRenderKey(root))"
+      <template #actions>
+        <button
+          v-if="isRevertedPreview"
+          type="button"
+          class="ib-action ib-action-undo ib-top-right"
+          :disabled="historyActionsDisabled"
+          @click="confirmUndoRevert()"
+        >
+          UNDO
+        </button>
+        <button
+          v-else-if="root.sessionID"
+          type="button"
+          class="ib-action ib-top-right"
+          :disabled="historyActionsDisabled"
+          @click="confirmFork()"
+        >
+          FORK
+        </button>
+      </template>
+      <template #title>{{ formatMessageTime(root.time.created) }}</template>
+      <template #attachments>
+        <div v-if="getMessageAttachments(root).length > 0" class="output-entry-attachments">
+          <img
+            v-for="item in getMessageAttachments(root)"
+            :key="item.id"
+            class="output-entry-attachment clickable"
+            :src="item.url"
+            :alt="item.filename"
+            loading="lazy"
+            @click="emit('open-image', { url: item.url, filename: item.filename })"
           />
-          <div v-if="getMessageAttachments(root).length > 0" class="output-entry-attachments">
-            <img
-              v-for="item in getMessageAttachments(root)"
-              :key="item.id"
-              class="output-entry-attachment clickable"
-              :src="item.url"
-              :alt="item.filename"
-              loading="lazy"
-              @click="emit('open-image', { url: item.url, filename: item.filename })"
-            />
-          </div>
         </div>
+      </template>
+    </UserMessageBox>
+
+    <div
+      v-if="!isRevertedPreview && (hasAssistantMessages(root) || getThreadError(root))"
+      class="message-box response-box"
+    >
+      <ThreadTarget :target="assistantTarget" :agent-style="targetAgentStyle(assistantTarget)" />
+
+      <div v-if="hasAssistantMessages(root)" class="thread-assistant">
+        <Transition name="ib-fade" mode="out-in">
+          <div class="ib-msg-block ib-msg-assistant" :key="deferredTransitionKey">
+            <div class="ib-msg-body">
+              <MessageViewer
+                class="message-viewer-context-assistant"
+                :html="assistantHtml"
+                copy-button
+              />
+            </div>
+            <div
+              v-if="getMessageAttachments(getFinalAnswer(root)).length > 0"
+              class="output-entry-attachments"
+            >
+              <img
+                v-for="item in getMessageAttachments(getFinalAnswer(root))"
+                :key="item.id"
+                class="output-entry-attachment clickable"
+                :src="item.url"
+                :alt="item.filename"
+                loading="lazy"
+                @click="emit('open-image', { url: item.url, filename: item.filename })"
+              />
+            </div>
+            <button
+              v-if="showHistoryButton(root)"
+              type="button"
+              class="ib-action ib-action-history"
+              :title="`${getHistoryEntries(root).length} entries - click to view history`"
+              @click="showThreadHistory(root)"
+            >
+              History ({{ getHistoryEntries(root).length }})
+            </button>
+          </div>
+        </Transition>
       </div>
+
+      <div v-if="getThreadError(root)" class="ib-error-bar">
+        <span class="ib-error-icon">⊘</span>
+        <span class="ib-error-text">{{ formatMessageError(getThreadError(root)!) }}</span>
+      </div>
+
+      <ThreadFooter
+        :timestamp="formatThreadTimestamp(root)"
+        :elapsed="formatThreadElapsed(root)"
+        :context-percent="getThreadContextPercent(root)"
+        :tokens="getThreadTokens(root)"
+        :has-diffs="hasThreadDiffs(root)"
+        :disabled="historyActionsDisabled"
+        @show-diff="showThreadDiff(root)"
+      />
     </div>
-
-    <ThreadTarget
-      v-if="!isRevertedPreview"
-      :target="threadTarget"
-      :agent-style="threadTargetAgentStyle"
-    />
-
-    <div v-if="!isRevertedPreview && hasAssistantMessages(root)" class="thread-assistant">
-      <Transition name="ib-fade" mode="out-in">
-        <div class="ib-msg-block ib-msg-assistant" :key="deferredTransitionKey">
-          <div class="ib-msg-body">
-            <MessageViewer
-              class="message-viewer-context-assistant"
-              :html="assistantHtml"
-              copy-button
-            />
-          </div>
-          <div
-            v-if="getMessageAttachments(getFinalAnswer(root)).length > 0"
-            class="output-entry-attachments"
-          >
-            <img
-              v-for="item in getMessageAttachments(getFinalAnswer(root))"
-              :key="item.id"
-              class="output-entry-attachment clickable"
-              :src="item.url"
-              :alt="item.filename"
-              loading="lazy"
-              @click="emit('open-image', { url: item.url, filename: item.filename })"
-            />
-          </div>
-          <button
-            v-if="showHistoryButton(root)"
-            type="button"
-            class="ib-action ib-action-history"
-            :title="`${getHistoryEntries(root).length} entries - click to view history`"
-            @click="showThreadHistory(root)"
-          >
-            History ({{ getHistoryEntries(root).length }})
-          </button>
-        </div>
-      </Transition>
-    </div>
-
-    <div v-if="!isRevertedPreview && getThreadError(root)" class="ib-error-bar">
-      <span class="ib-error-icon">⊘</span>
-      <span class="ib-error-text">{{ formatMessageError(getThreadError(root)!) }}</span>
-    </div>
-
-    <ThreadFooter
-      v-if="!isRevertedPreview"
-      :timestamp="formatThreadTimestamp(root)"
-      :elapsed="formatThreadElapsed(root)"
-      :context-percent="getThreadContextPercent(root)"
-      :tokens="getThreadTokens(root)"
-      :has-diffs="hasThreadDiffs(root)"
-      :can-revert="canRevertThread(root)"
-      @show-diff="showThreadDiff(root)"
-      @revert="confirmRevert(root)"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, Transition } from 'vue';
 import MessageViewer from './MessageViewer.vue';
+import UserMessageBox from './UserMessageBox.vue';
 import ThreadFooter from './ThreadFooter.vue';
 import ThreadTarget from './ThreadTarget.vue';
 import { useMessages } from '../composables/useMessages';
@@ -130,13 +127,24 @@ import type {
 import type { MessageInfo, QuestionInfo, ToolPart } from '../types/sse';
 import { formatElapsedTime, formatMessageError, formatMessageTime } from '../utils/formatters';
 
-const HISTORY_TOOL_NAMES = new Set(['bash', 'write', 'edit', 'multiedit', 'apply_patch']);
+const HISTORY_TOOL_NAMES = new Set([
+  'bash',
+  'write',
+  'edit',
+  'multiedit',
+  'apply_patch',
+  'shell',
+  'patch',
+  'subagent',
+]);
 
 const props = defineProps<{
+  historyActionsDisabled?: boolean;
   root: MessageInfo;
   theme: string;
   filesWithBasenames: string[];
   isRevertedPreview: boolean;
+  sessionAgent?: string;
   resolveAgentColor?: (agent?: string) => string;
   resolveModelMeta?: (modelPath?: string) => ModelMeta | undefined;
   computeContextPercent?: (
@@ -166,13 +174,11 @@ const emit = defineEmits<{
 
 const msg = useMessages();
 
-const threadTarget = computed<ThreadTargetType>(() => buildThreadTarget(props.root));
-const threadTargetAgentStyle = computed(() => {
-  const color = props.resolveAgentColor
-    ? props.resolveAgentColor(threadTarget.value.agent)
-    : '#4ade80';
+const assistantTarget = computed(() => buildMessageTarget(getFinalAnswer(props.root)));
+function targetAgentStyle(target: ThreadTargetType) {
+  const color = props.resolveAgentColor ? props.resolveAgentColor(target.agent) : '#4ade80';
   return { color };
-});
+}
 
 function getThread(rootId: string): MessageInfo[] {
   return msg.getThread(rootId);
@@ -286,7 +292,7 @@ function getHistoryEntries(root: MessageInfo): HistoryEntry[] {
         entries.push({ kind: 'question', part, time: getToolPartTime(part) });
         continue;
       }
-      if (!HISTORY_TOOL_NAMES.has(part.tool)) continue;
+      if (!part.v2 && !HISTORY_TOOL_NAMES.has(part.tool)) continue;
       entries.push({ kind: 'tool', part, time: getToolPartTime(part) });
     }
   }
@@ -372,22 +378,11 @@ function showThreadDiff(root: MessageInfo) {
   emit('show-message-diff', { messageKey: root.id, diffs });
 }
 
-function canRevertThread(root: MessageInfo): boolean {
-  if (props.sessionRevert) return false;
-  return root.role === 'user' && Boolean(root.sessionID);
-}
-
 function confirmFork() {
   const root = props.root;
   if (root.role !== 'user' || !root.sessionID || !root.id) return;
   if (!window.confirm('Fork from this message?')) return;
   emit('fork-message', { sessionId: root.sessionID, messageId: root.id });
-}
-
-function confirmRevert(root: MessageInfo) {
-  if (root.role !== 'user' || !root.sessionID || !root.id) return;
-  if (!window.confirm('Revert to this message?')) return;
-  emit('revert-message', { sessionId: root.sessionID, messageId: root.id });
 }
 
 function confirmUndoRevert() {
@@ -396,12 +391,11 @@ function confirmUndoRevert() {
   emit('undo-revert');
 }
 
-function buildThreadTarget(root: MessageInfo): ThreadTargetType {
-  const final = getFinalAnswer(root);
-  const agent = root.agent ?? final?.agent;
-  const modelPath = getMessageModelPath(root) || getMessageModelPath(final);
+function buildMessageTarget(message?: MessageInfo): ThreadTargetType {
+  const agent = message?.agent;
+  const modelPath = getMessageModelPath(message);
   const modelMeta = props.resolveModelMeta?.(modelPath);
-  const variant = root.variant ?? final?.variant;
+  const variant = message?.variant;
   return {
     agent,
     modelDisplayName: modelMeta?.displayName,
@@ -410,15 +404,11 @@ function buildThreadTarget(root: MessageInfo): ThreadTargetType {
   };
 }
 
-function getUserBoxStyle() {
+function getUserAgentColor() {
   const final = getFinalAnswer(props.root);
-  const color = props.resolveAgentColor
-    ? props.resolveAgentColor(props.root.agent ?? final?.agent)
+  return props.resolveAgentColor
+    ? props.resolveAgentColor(props.root.agent ?? final?.agent ?? props.sessionAgent)
     : '#334155';
-  if (color.startsWith('#') && color.length === 7) {
-    return { borderLeftColor: `${color}99` };
-  }
-  return { borderLeftColor: color };
 }
 
 function formatThreadTimestamp(root: MessageInfo): string {
@@ -500,6 +490,13 @@ function getThreadUserRenderKey(root: MessageInfo): string {
 
 <style scoped>
 .thread-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.message-box {
   background: rgba(2, 6, 23, 0.6);
   border: 1px solid #1e293b;
   border-radius: 10px;
@@ -513,37 +510,15 @@ function getThreadUserRenderKey(root: MessageInfo): string {
   opacity: 0.45;
 }
 
-.thread-block.is-reverted-preview > .ib-top-right {
+.thread-block.is-reverted-preview > .thread-user > .ib-top-right {
   position: relative;
   z-index: 1;
-}
-
-.thread-user {
-  border-left: 3px solid;
-  padding-left: 8px;
-  width: 100%;
-  box-sizing: border-box;
 }
 
 .ib-msg-block {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.ib-msg-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ib-msg-user {
-  font-size: 13px;
-  padding: 4px 0;
-}
-
-.ib-msg-user-reverted {
-  text-decoration: line-through;
 }
 
 .ib-msg-assistant {

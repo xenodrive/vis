@@ -2,30 +2,30 @@
   <div class="permission-window">
     <div class="permission-header">
       <div class="permission-title">Permission request</div>
-      <div class="permission-type">{{ request.permission }}</div>
+      <div class="permission-type">{{ request.action }}</div>
     </div>
     <div class="permission-summary">
       <div class="permission-row">
         <div class="permission-label">Session</div>
         <div class="permission-value">{{ request.sessionID }}</div>
       </div>
-      <div v-if="request.tool" class="permission-row">
+      <div v-if="request.source" class="permission-row">
         <div class="permission-label">Tool</div>
         <div class="permission-value">
-          message {{ request.tool.messageID }}
+          message {{ request.source.messageID }}
           <span class="divider">/</span>
-          call {{ request.tool.callID }}
+          call {{ request.source.id }}
         </div>
       </div>
       <div class="permission-row">
         <div class="permission-label">Items</div>
         <div class="permission-value">
-          Patterns {{ request.patterns.length }}
+          Resources {{ request.resources.length }}
           <span class="divider">/</span>
           Metadata {{ metadataEntries.length }}
-          <span v-if="request.always.length > 0">
+          <span v-if="savedResources.length > 0">
             <span class="divider">/</span>
-            Always {{ request.always.length }}
+            Always {{ savedResources.length }}
           </span>
         </div>
       </div>
@@ -33,10 +33,10 @@
 
     <div class="permission-body">
       <div class="permission-section">
-        <div class="section-title">Patterns ({{ request.patterns.length }})</div>
+        <div class="section-title">Resources ({{ request.resources.length }})</div>
         <ul class="pattern-list">
-          <li v-for="pattern in request.patterns" :key="pattern">{{ pattern }}</li>
-          <li v-if="request.patterns.length === 0" class="empty">None</li>
+          <li v-for="resource in request.resources" :key="resource">{{ resource }}</li>
+          <li v-if="request.resources.length === 0" class="empty">None</li>
         </ul>
       </div>
 
@@ -49,10 +49,10 @@
         </div>
       </div>
 
-      <div v-if="request.always.length > 0" class="permission-section">
-        <div class="section-title">Always allow ({{ request.always.length }})</div>
+      <div v-if="savedResources.length > 0" class="permission-section">
+        <div class="section-title">Always allow ({{ savedResources.length }})</div>
         <ul class="pattern-list">
-          <li v-for="pattern in request.always" :key="pattern">{{ pattern }}</li>
+          <li v-for="resource in savedResources" :key="resource">{{ resource }}</li>
         </ul>
       </div>
 
@@ -71,7 +71,7 @@
       <button
         type="button"
         class="permission-button is-always"
-        :disabled="isSubmitting"
+        :disabled="isSubmitting || savedResources.length === 0"
         @click="emitReply('always')"
       >
         Always
@@ -90,19 +90,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-
-type PermissionRequest = {
-  id: string;
-  sessionID: string;
-  permission: string;
-  patterns: string[];
-  metadata: Record<string, unknown>;
-  always: string[];
-  tool?: {
-    messageID: string;
-    callID: string;
-  };
-};
+import type { PermissionRequest } from '@opencode-ai/client';
 
 type PermissionReply = 'once' | 'always' | 'reject';
 
@@ -117,6 +105,7 @@ const emit = defineEmits<{
 }>();
 
 const metadataEntries = computed(() => Object.entries(props.request.metadata ?? {}));
+const savedResources = computed(() => props.request.save ?? []);
 
 function formatInlineValue(value: unknown) {
   if (typeof value === 'string') return trimToLength(value, 140);

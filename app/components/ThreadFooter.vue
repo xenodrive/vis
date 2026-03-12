@@ -40,17 +40,10 @@
         v-if="hasDiffs"
         type="button"
         class="ib-action ib-action-diff"
+        :disabled="disabled"
         @click="$emit('show-diff')"
       >
         DIFF
-      </button>
-      <button
-        v-if="canRevert"
-        type="button"
-        class="ib-action ib-action-danger"
-        @click="$emit('revert')"
-      >
-        REVERT
       </button>
     </span>
   </div>
@@ -62,17 +55,16 @@ import type { MessageTokens } from '../types/message';
 import { contextSeverityClass, formatTokenCount } from '../utils/formatters';
 
 defineProps<{
+  disabled?: boolean;
   timestamp: string;
   elapsed: string;
   contextPercent: number | null;
   tokens: MessageTokens | null;
   hasDiffs: boolean;
-  canRevert: boolean;
 }>();
 
 defineEmits<{
   (event: 'show-diff'): void;
-  (event: 'revert'): void;
 }>();
 </script>
 

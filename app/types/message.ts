@@ -28,9 +28,8 @@ export type MessageAttachment = {
 
 export type MessageDiffEntry = {
   file: string;
-  diff: string;
-  before?: string;
-  after?: string;
+  before: string;
+  after: string;
 };
 
 export type MessageStatus = 'streaming' | 'complete' | 'error';
