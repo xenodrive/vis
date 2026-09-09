@@ -9,10 +9,12 @@ import hexdump from '@kikuchan/hexdump';
 import { errorMessage } from '../v2/connection';
 import { fileContent, findTreeNode, treeFiles } from '../v2/files';
 import { createFileIndex } from '../v2/file-index';
+import type { GitActions, GitPatch } from '../v2/git';
 
 export function useV2FileTree(
   state: ReturnType<typeof useV2>,
   fw: ReturnType<typeof useFloatingWindows>,
+  git: GitActions,
 ) {
   const nodes = ref<TreeNode[]>([]);
   const expanded = ref<string[]>([]);
@@ -32,6 +34,7 @@ export function useV2FileTree(
   const reads = new Map<string, AbortController>();
   let controller = new AbortController();
   let generation = 0;
+  let gitRevision = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let publishTimer: ReturnType<typeof setTimeout> | undefined;
   let index: ReturnType<typeof createFileIndex> | undefined;
@@ -94,60 +97,89 @@ export function useV2FileTree(
     const location = scope.value;
     if (!location) return;
     const current = generation;
+    const request = ++gitRevision;
     try {
-      const result = await state.readVcs(location, controller.signal);
-      if (current !== generation) return;
+      const [result, snapshot] = await Promise.all([
+        state.readVcs(location, controller.signal),
+        git.snapshot(),
+      ]);
+      if (current !== generation || request !== gitRevision) return;
       gitError.value = '';
       branch.value = result.info.branch.current
         ? { branch: result.info.branch.current, ahead: 0, behind: 0 }
         : null;
+      const prefix =
+        location.directory === snapshot.root
+          ? ''
+          : location.directory.slice(snapshot.root.length + 1) + '/';
       gitStatus.value = Object.fromEntries(
-        result.status.map((file) => [
-          file.file,
-          {
-            path: file.file,
-            index: '',
-            worktree: file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : 'M',
-          },
-        ]),
+        Object.values(snapshot.status)
+          .filter((file) => file.path.startsWith(prefix))
+          .map((file) => {
+            const path = file.path.slice(prefix.length);
+            return [path, { ...file, path }];
+          }),
       );
+      const stats = (files: GitPatch[]) => ({
+        additions: files.reduce((sum, file) => sum + file.additions, 0),
+        deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+      });
       diffStats.value = {
-        staged: { additions: 0, deletions: 0 },
-        unstaged: {
+        staged: stats(snapshot.staged),
+        unstaged: stats(snapshot.unstaged),
+        changes: {
           additions: result.status.reduce((sum, file) => sum + file.additions, 0),
           deletions: result.status.reduce((sum, file) => sum + file.deletions, 0),
         },
       };
     } catch (cause) {
-      if (current === generation) gitError.value = errorMessage(cause);
+      if (current === generation && request === gitRevision) {
+        gitError.value = errorMessage(cause);
+        gitStatus.value = {};
+        diffStats.value = null;
+      }
     }
   }
 
-  async function openDiff(path?: string) {
+  async function openDiff(path?: string, staged = false) {
     const location = scope.value;
     if (!location) return;
     const current = generation;
     try {
-      const changes = await state.readWorkingDiff(location, controller.signal);
+      const stagedSnapshot = staged ? await git.snapshot() : undefined;
+      const changes = stagedSnapshot
+        ? stagedSnapshot.staged
+        : await state.readWorkingDiff(location, controller.signal);
       if (current !== generation) return;
-      const files = path ? changes.filter((file) => file.file === path) : changes;
+      const prefix =
+        stagedSnapshot && location.directory !== stagedSnapshot.root
+          ? location.directory.slice(stagedSnapshot.root.length + 1) + '/'
+          : '';
+      const files = path ? changes.filter((file) => file.file === prefix + path) : changes;
       if (!files.length) {
         state.error.value = 'No working-copy diff is available for this selection.';
         return;
       }
-      await fw.open(`working-diff:${JSON.stringify(location)}:${path ?? 'all'}`, {
-        component: WorkingDiff,
-        props: { files },
-        title: path ? `Changes: ${path}` : 'All uncommitted changes',
-        variant: 'diff',
-        closable: true,
-        resizable: true,
-        focusOnOpen: true,
-        scroll: 'manual',
-        expiry: Infinity,
-        width: 900,
-        height: 650,
-      });
+      await fw.open(
+        `working-diff:${JSON.stringify(location)}:${staged ? 'staged' : 'changes'}:${path ?? 'all'}`,
+        {
+          component: WorkingDiff,
+          props: { files },
+          title: path
+            ? `${staged ? 'Staged' : 'Changes'}: ${path}`
+            : staged
+              ? 'Staged changes'
+              : 'All uncommitted changes',
+          variant: 'diff',
+          closable: true,
+          resizable: true,
+          focusOnOpen: true,
+          scroll: 'manual',
+          expiry: Infinity,
+          width: 900,
+          height: 650,
+        },
+      );
     } catch (cause) {
       if (current === generation) state.error.value = errorMessage(cause);
     }
@@ -297,7 +329,13 @@ export function useV2FileTree(
     }, 500);
   });
 
+  function refreshGitOnFocus() {
+    if (state.ready.value && scope.value) void loadGit();
+  }
+  window.addEventListener('focus', refreshGitOnFocus);
+
   onBeforeUnmount(() => {
+    window.removeEventListener('focus', refreshGitOnFocus);
     stopEvents();
     clearTimeout(refreshTimer);
     controller.abort();

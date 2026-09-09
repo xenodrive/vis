@@ -73,8 +73,9 @@
             :tree-diff-stats="fileTree.diffStats.value"
             :tree-directory-name="directory"
             @toggle-collapse="sidePanelCollapsed = !sidePanelCollapsed"
-            @open-diff="fileTree.openDiff($event.path)"
-            @open-diff-all="fileTree.openDiff()"
+            @open-diff="fileTree.openDiff($event.path, $event.staged)"
+            @open-diff-all="fileTree.openDiff(undefined, $event.mode === 'staged')"
+            @git-action="openGitAction"
             @reload="fileTree.reload"
             @toggle-dir="fileTree.toggle"
             @select-file="fileTree.selectedPath.value = $event || undefined"
@@ -277,6 +278,14 @@
       @select="state.createSession"
     />
     <SettingsModal :open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <GitChangesDialog
+      v-if="gitAction && selected"
+      :action="gitAction"
+      :api="gitActions"
+      :generate="generateCommitMessage"
+      @close="gitAction = undefined"
+      @changed="fileTree.reload"
+    />
   </div>
 </template>
 
@@ -292,6 +301,8 @@ import ProjectPicker from './components/ProjectPicker.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import Welcome from './components/Welcome.vue';
 import PendingInputs from './components/v2/PendingInputs.vue';
+import GitChangesDialog from './components/v2/GitChangesDialog.vue';
+import { createGitActions, type GitAction } from './v2/git';
 import { useV2 } from './composables/useV2';
 import { useV2Windows } from './composables/useV2Windows';
 import { useV2FileTree } from './composables/useV2FileTree';
@@ -394,8 +405,24 @@ watch(
   { flush: 'sync' },
 );
 const { fw } = windows;
-const fileTree = useV2FileTree(state, fw);
 const pty = useV2Pty(state, fw);
+const gitActions = createGitActions(pty.inspect, pty.run);
+const fileTree = useV2FileTree(state, fw, gitActions);
+const gitAction = ref<GitAction>();
+function openGitAction(action: GitAction) {
+  if (!gitAction.value) gitAction.value = action;
+}
+function generateCommitMessage(prompt: string, signal: AbortSignal) {
+  if (!selected.value) throw new Error('Select a session before generating a commit message.');
+  return state.generateCommitMessage(selected.value.id, prompt, signal);
+}
+watch(
+  () => JSON.stringify([ready.value, selected.value?.id, selected.value?.location]),
+  () => {
+    gitAction.value = undefined;
+  },
+  { flush: 'sync' },
+);
 const gitControls = useV2GitControls(state, pty, fileTree.reload);
 watch(fileTree.branch, (branch) => {
   if (branch) void gitControls.reload();

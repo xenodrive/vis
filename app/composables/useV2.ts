@@ -962,6 +962,15 @@ export function useV2() {
 
   return {
     idleNotifications,
+    async generateCommitMessage(sessionID: string, prompt: string, signal: AbortSignal) {
+      const response = await api().session.generate(
+        { sessionID, prompt },
+        {
+          signal: AbortSignal.any([signal, options().signal]),
+        },
+      );
+      return response.text;
+    },
     listProjectSessions,
     listLocationSessions,
     renameSession,

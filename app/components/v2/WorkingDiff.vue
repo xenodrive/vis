@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { FileDiffInfo } from '@opencode-ai/client';
 import DiffViewer from '../viewers/DiffViewer.vue';
-const props = defineProps<{ files: FileDiffInfo[] }>();
+const props = defineProps<{
+  files: { file: string; patch: string; additions: number; deletions: number }[];
+}>();
 const index = ref(0);
 const active = computed(() => props.files[index.value]);
 </script>

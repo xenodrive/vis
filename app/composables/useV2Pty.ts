@@ -108,7 +108,7 @@ export function useV2Pty(
     closing.set(key, operation);
     return operation;
   }
-  async function run(command: string): Promise<number | undefined> {
+  async function run(command: string, title = command): Promise<number | undefined> {
     const client = api;
     const current = generation;
     if (!client) return;
@@ -118,7 +118,7 @@ export function useV2Pty(
       const key = `shell:${pty.id}`;
       const completion = new Promise<number>((done) => commands.set(key, { done }));
       await show(pty, client);
-      fw.updateOptions(key, { title: `🔧 ${command}` });
+      fw.updateOptions(key, { title: `🔧 ${title}` });
       const code = exits.get(pty.id);
       if (code !== undefined) finishCommand(key, code);
       return await completion;

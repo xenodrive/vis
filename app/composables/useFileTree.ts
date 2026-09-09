@@ -47,7 +47,7 @@ export type FileNode = {
   ignored?: boolean;
 };
 
-export type GitStatusCode = '' | 'M' | 'A' | 'D' | 'R' | 'C' | '?';
+export type GitStatusCode = '' | 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | '?';
 
 export type GitFileStatus = {
   path: string;
@@ -72,6 +72,7 @@ export type GitDiffStatsEntry = {
 export type GitDiffStats = {
   staged: GitDiffStatsEntry;
   unstaged: GitDiffStatsEntry;
+  changes: GitDiffStatsEntry;
 };
 
 export type BranchEntry = {
@@ -518,6 +519,10 @@ function parseGitStatusOutput(output: string): GitStatus {
     diffStats: {
       staged: { additions: stagedAdditions, deletions: stagedDeletions },
       unstaged: { additions: unstagedAdditions, deletions: unstagedDeletions },
+      changes: {
+        additions: stagedAdditions + unstagedAdditions,
+        deletions: stagedDeletions + unstagedDeletions,
+      },
     },
   };
 }

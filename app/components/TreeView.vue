@@ -220,23 +220,43 @@
           </DropdownItem>
           <DropdownItem value="git pull" class="tree-branch-cmd-danger">git pull</DropdownItem>
         </Dropdown>
-        <span
-          v-if="activeDiffStats && (activeDiffStats.additions > 0 || activeDiffStats.deletions > 0)"
-          class="tree-branch-stats"
-          role="button"
-          tabindex="0"
-          :title="diffStatsTitle"
-          @click="onDiffStatsClick"
-          @keydown.enter.prevent="onDiffStatsClick"
-          @keydown.space.prevent="onDiffStatsClick"
+        <Dropdown
+          v-if="activeDiffStats"
+          v-model:open="changesMenuOpen"
+          class="tree-changes-dropdown"
+          auto-close
+          :popup-style="{ width: '230px' }"
+          @select="onChangesSelect"
         >
-          <span v-if="activeDiffStats.additions > 0" class="tree-stat-add"
-            >+{{ activeDiffStats.additions }}</span
+          <template #trigger>
+            <button
+              type="button"
+              class="tree-branch-stats"
+              :title="diffStatsTitle"
+              :aria-expanded="changesMenuOpen"
+              aria-label="Change actions"
+              @click.stop="changesMenuOpen = !changesMenuOpen"
+            >
+              <span class="tree-stat-add">+{{ activeDiffStats.additions }}</span>
+              <span class="tree-stat-del">−{{ activeDiffStats.deletions }}</span>
+              <Icon icon="lucide:chevron-down" :width="11" :height="11" />
+            </button>
+          </template>
+          <DropdownItem value="diff" :disabled="!hasActiveChanges">Show diff</DropdownItem>
+          <DropdownItem
+            :value="viewMode === 'staged' ? 'unstage' : 'stage'"
+            :disabled="!hasActiveChanges"
           >
-          <span v-if="activeDiffStats.deletions > 0" class="tree-stat-del"
-            >−{{ activeDiffStats.deletions }}</span
+            {{ viewMode === 'staged' ? 'Unstage…' : 'Stage…' }}
+          </DropdownItem>
+          <DropdownItem
+            :value="viewMode === 'staged' ? 'commit-staged' : 'commit-all'"
+            :disabled="!hasActiveChanges"
+            :style="{ color: resolveTheme(opencodeTheme, 'dark').primary }"
           >
-        </span>
+            {{ viewMode === 'staged' ? 'Commit staged changes…' : 'Commit changes (-a)…' }}
+          </DropdownItem>
+        </Dropdown>
       </div>
       <div class="tree-tabs" role="tablist" aria-label="Tree mode">
         <button
@@ -249,6 +269,17 @@
           @click="setViewMode('changes')"
         >
           Changes
+        </button>
+        <button
+          type="button"
+          class="tree-tab"
+          :class="{ 'is-active': viewMode === 'staged' }"
+          role="tab"
+          :aria-selected="viewMode === 'staged'"
+          title="Staged changes"
+          @click="setViewMode('staged')"
+        >
+          Staged
         </button>
         <button
           type="button"
@@ -344,6 +375,8 @@ import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
 import DropdownLabel from './Dropdown/Label.vue';
 import DropdownSearch from './Dropdown/Search.vue';
+import type { GitAction } from '../v2/git';
+import { opencodeTheme, resolveTheme } from '../utils/theme';
 
 export type TreeNode = {
   name: string;
@@ -354,7 +387,7 @@ export type TreeNode = {
   synthetic?: boolean;
 };
 
-export type GitStatusCode = '' | 'M' | 'A' | 'D' | 'R' | 'C' | '?';
+export type GitStatusCode = '' | 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | '?';
 
 export type GitFileStatus = {
   path: string;
@@ -379,6 +412,7 @@ export type GitDiffStatsEntry = {
 export type GitDiffStats = {
   staged: GitDiffStatsEntry;
   unstaged: GitDiffStatsEntry;
+  changes: GitDiffStatsEntry;
 };
 
 type TreeViewMode = 'staged' | 'changes' | 'all';
@@ -416,6 +450,7 @@ const emit = defineEmits<{
   (event: 'open-diff-all', payload: { mode: 'staged' | 'changes' | 'all' }): void;
   (event: 'open-file', path: string): void;
   (event: 'reload'): void;
+  (event: 'git-action', action: GitAction): void;
 }>();
 
 const viewMode = ref<TreeViewMode>('all');
@@ -423,6 +458,12 @@ const branchMenuOpen = ref(false);
 const branchSearchQuery = ref('');
 const pushMenuOpen = ref(false);
 const pullMenuOpen = ref(false);
+const changesMenuOpen = ref(false);
+const hasActiveChanges = computed(() =>
+  Object.values(props.gitStatusByPath ?? {}).some((status) =>
+    viewMode.value === 'staged' ? hasStaged(status) : hasChanges(status),
+  ),
+);
 const expanded = computed(() => new Set(props.expandedPaths));
 const branchIcon = computed(() => (props.branchInfo ? 'lucide:git-branch' : 'lucide:folder'));
 const branchName = computed(() => props.branchInfo?.branch ?? props.directoryName ?? 'no git');
@@ -472,11 +513,7 @@ const activeDiffStats = computed((): GitDiffStatsEntry | null => {
   const stats = props.diffStats;
   if (!stats) return null;
   if (viewMode.value === 'staged') return stats.staged;
-  if (viewMode.value === 'changes') return stats.unstaged;
-  return {
-    additions: stats.staged.additions + stats.unstaged.additions,
-    deletions: stats.staged.deletions + stats.unstaged.deletions,
-  };
+  return stats.changes;
 });
 
 const diffStatsTitle = computed(() => {
@@ -485,11 +522,12 @@ const diffStatsTitle = computed(() => {
   const parts: string[] = [];
   if (stats.additions > 0) parts.push(`+${stats.additions} insertions`);
   if (stats.deletions > 0) parts.push(`−${stats.deletions} deletions`);
-  return `${parts.join(', ')} (click to open diff)`;
+  return `${parts.join(', ')} (change actions)`;
 });
 
 function setViewMode(mode: TreeViewMode) {
   viewMode.value = mode;
+  emit('reload');
 }
 
 function sortNodes(nodes: TreeNode[]) {
@@ -521,7 +559,7 @@ function hasStaged(status: GitFileStatus) {
 }
 
 function hasChanges(status: GitFileStatus) {
-  return status.index === '?' || status.worktree === '?' || status.worktree !== '';
+  return status.index !== '' || status.worktree !== '';
 }
 
 function needsPseudoNode(status: GitFileStatus) {
@@ -640,20 +678,6 @@ function displayStatus(path: string): DisplayStatus | null {
     };
   }
 
-  if (viewMode.value === 'changes') {
-    if (!hasChanges(status)) return null;
-    if (status.index === '?' || status.worktree === '?') {
-      return {
-        code: '?',
-        staged: false,
-      };
-    }
-    return {
-      code: status.worktree,
-      staged: false,
-    };
-  }
-
   if (status.index === '?' || status.worktree === '?') {
     return {
       code: '?',
@@ -683,7 +707,7 @@ function statusLabel(code?: GitStatusCode) {
   if (code === '?') return 'U';
   if (code === 'A') return 'A';
   if (code === 'D') return 'D';
-  if (code === 'M') return 'M';
+  if (code === 'M' || code === 'T') return code;
   if (code === 'R') return 'R';
   if (code === 'C') return 'C';
   return '';
@@ -692,7 +716,7 @@ function statusLabel(code?: GitStatusCode) {
 function statusClass(status: DisplayStatus | null) {
   if (!status) return '';
   const classes: string[] = [status.staged ? 'is-staged' : 'is-unstaged'];
-  if (status.code === 'M') classes.push('is-modified');
+  if (status.code === 'M' || status.code === 'T') classes.push('is-modified');
   else if (status.code === 'A') classes.push('is-added');
   else if (status.code === 'D') classes.push('is-deleted-status');
   else if (status.code === 'R') classes.push('is-renamed');
@@ -704,7 +728,7 @@ function statusClass(status: DisplayStatus | null) {
 function rowStatusClass(path: string) {
   const status = displayStatus(path);
   if (!status) return '';
-  if (status.code === 'M') return 'row-modified';
+  if (status.code === 'M' || status.code === 'T') return 'row-modified';
   if (status.code === 'A') return 'row-added';
   if (status.code === 'D') return 'row-deleted';
   if (status.code === 'R') return 'row-renamed';
@@ -716,11 +740,18 @@ function rowStatusClass(path: string) {
 function onStatusClick(path: string) {
   const status = displayStatus(path);
   if (!status) return;
-  emit('open-diff', { path, staged: status.staged });
+  emit('open-diff', { path, staged: viewMode.value === 'staged' });
 }
 
-function onDiffStatsClick() {
-  emit('open-diff-all', { mode: viewMode.value });
+function onChangesSelect(value: unknown) {
+  if (value === 'diff') emit('open-diff-all', { mode: viewMode.value });
+  else if (
+    value === 'stage' ||
+    value === 'unstage' ||
+    value === 'commit-staged' ||
+    value === 'commit-all'
+  )
+    emit('git-action', value);
 }
 
 function shellQuote(value: string) {
@@ -1112,11 +1143,16 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   background: rgba(248, 113, 113, 0.12);
 }
 
+.tree-changes-dropdown {
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .tree-branch-stats {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 600;
@@ -1124,6 +1160,8 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   cursor: pointer;
   border-radius: 999px;
   padding: 1px 6px;
+  border: 0;
+  background: transparent;
   transition: background 0.12s ease;
 }
 
