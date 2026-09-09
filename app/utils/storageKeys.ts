@@ -4,6 +4,7 @@ export const StorageKeys = {
   settings: {
     enterToSend: 'settings.enterToSend.v1',
     suppressAutoWindows: 'settings.suppressAutoWindows.v1',
+    commitModel: 'settings.commitModel.v1',
   },
   state: {
     sidePanelCollapsed: 'state.sidePanelCollapsed.v1',

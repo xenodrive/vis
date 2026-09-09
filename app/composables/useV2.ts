@@ -962,9 +962,9 @@ export function useV2() {
 
   return {
     idleNotifications,
-    async generateCommitMessage(sessionID: string, prompt: string, signal: AbortSignal) {
-      const response = await api().session.generate(
-        { sessionID, prompt },
+    async generateCommitMessage(prompt: string, signal: AbortSignal, model?: ModelRef) {
+      const response = await api().generate.text(
+        { prompt, ...(model ? { model } : {}) },
         {
           signal: AbortSignal.any([signal, options().signal]),
         },

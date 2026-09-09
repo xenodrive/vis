@@ -164,6 +164,29 @@ export function createGitActions(
     return files[0];
   }
 
+  async function recentMessages(snapshot: GitSnapshot) {
+    // An unborn branch has no commit history.
+    if (!snapshot.head) return [];
+    const [log] = await read(
+      section(`test "$(pwd -P)" = ${shellQuote(snapshot.root)}
+git --no-pager log -10 --date-order --no-merges --no-show-signature --encoding=UTF-8 --format=format:%B%x00 ${shellQuote(snapshot.head)} --`),
+      1,
+    );
+    const messages: { message: string; truncated: boolean }[] = [];
+    let remaining = 12000;
+    for (const entry of log.split('\0')) {
+      const message = entry.trim();
+      if (!message) continue;
+      if (!remaining) break;
+      const characters = Array.from(message);
+      const limit = Math.min(2000, remaining);
+      const excerpt = characters.slice(0, limit);
+      messages.push({ message: excerpt.join(''), truncated: characters.length > limit });
+      remaining -= excerpt.length;
+    }
+    return messages;
+  }
+
   function guard(snapshot: GitSnapshot) {
     return `test "$(pwd -P)" = ${shellQuote(snapshot.root)}
 test "$(git rev-parse --verify -q HEAD || test "$?" = 1)" = ${shellQuote(snapshot.head)}
@@ -213,7 +236,7 @@ git apply --cached --whitespace=nowarn "$d/selection.patch"
     if (code !== 0) throw new Error('Git commit failed. Review the terminal output and refresh.');
   }
 
-  return { snapshot, untrackedPatch, stage, commit };
+  return { snapshot, untrackedPatch, recentMessages, stage, commit };
 }
 
 export type GitActions = ReturnType<typeof createGitActions>;

@@ -277,12 +277,13 @@
       @close="isProjectPickerOpen = false"
       @select="state.createSession"
     />
-    <SettingsModal :open="isSettingsOpen" @close="isSettingsOpen = false" />
+    <SettingsModal :open="isSettingsOpen" :models="models" @close="isSettingsOpen = false" />
     <GitChangesDialog
       v-if="gitAction && selected"
       :action="gitAction"
       :api="gitActions"
       :generate="generateCommitMessage"
+      :generation-model-label="commitModelLabel"
       @close="gitAction = undefined"
       @changed="fileTree.reload"
     />
@@ -304,6 +305,7 @@ import PendingInputs from './components/v2/PendingInputs.vue';
 import GitChangesDialog from './components/v2/GitChangesDialog.vue';
 import { createGitActions, type GitAction } from './v2/git';
 import { useV2 } from './composables/useV2';
+import { useSettings } from './composables/useSettings';
 import { useV2Windows } from './composables/useV2Windows';
 import { useV2FileTree } from './composables/useV2FileTree';
 import { useV2Pty } from './composables/useV2Pty';
@@ -409,12 +411,18 @@ const pty = useV2Pty(state, fw);
 const gitActions = createGitActions(pty.inspect, pty.run);
 const fileTree = useV2FileTree(state, fw, gitActions);
 const gitAction = ref<GitAction>();
+const { commitModel } = useSettings();
+const commitModelLabel = computed(() => {
+  const model = commitModel.value;
+  return model
+    ? `${model.providerID}/${model.id} · Variant: ${model.variant ?? 'Default'}`
+    : 'Default (OpenCode)';
+});
 function openGitAction(action: GitAction) {
   if (!gitAction.value) gitAction.value = action;
 }
 function generateCommitMessage(prompt: string, signal: AbortSignal) {
-  if (!selected.value) throw new Error('Select a session before generating a commit message.');
-  return state.generateCommitMessage(selected.value.id, prompt, signal);
+  return state.generateCommitMessage(prompt, signal, commitModel.value ?? undefined);
 }
 watch(
   () => JSON.stringify([ready.value, selected.value?.id, selected.value?.location]),
@@ -997,6 +1005,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   }
 }
 .app {
+  --term-font-family:
+    'Iosevka Term', 'Iosevka Fixed', 'JetBrains Mono', 'Cascadia Mono', 'SFMono-Regular', Menlo,
+    Consolas, 'Liberation Mono', monospace;
+  --term-font-size: 13px;
+  --term-line-height: 1.1;
   position: relative;
   width: 100%;
   height: 100%;
@@ -1255,11 +1268,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   --dock-reserved: 0px;
   --tool-top-offset: 0px;
   --tool-area-height: var(--canvas-height, 100%);
-  --term-font-family:
-    'Iosevka Term', 'Iosevka Fixed', 'JetBrains Mono', 'Cascadia Mono', 'SFMono-Regular', Menlo,
-    Consolas, 'Liberation Mono', monospace;
-  --term-font-size: 13px;
-  --term-line-height: 1.1;
   --term-width: 670px;
   --term-height: 386px;
 }

@@ -26,18 +26,67 @@
             <span class="toggle-track" />
           </label>
         </div>
+        <section class="generation-settings" aria-labelledby="commit-generation-title">
+          <div id="commit-generation-title" class="setting-label">Commit message generation</div>
+          <p class="setting-description">
+            Generate from the commit diff using OpenCode's global model configuration.
+          </p>
+          <label class="model-field">
+            <span>Model</span>
+            <select v-model="modelKey">
+              <option value="">Default (OpenCode)</option>
+              <option v-if="commitModel && !selectedModel" :value="modelKey" disabled>
+                {{ commitModel.providerID }}/{{ commitModel.id }} (not in current catalog)
+              </option>
+              <optgroup v-for="group in modelGroups" :key="group.provider" :label="group.provider">
+                <option
+                  v-for="model in group.models"
+                  :key="model.id"
+                  :value="JSON.stringify([model.providerID, model.id])"
+                >
+                  {{ model.name }} ({{ model.id }})
+                </option>
+              </optgroup>
+            </select>
+          </label>
+          <label class="model-field">
+            <span>Variant</span>
+            <select v-model="variant" :disabled="!selectedModel">
+              <option value="">Default</option>
+              <option
+                v-if="
+                  commitModel?.variant &&
+                  !variants.some((entry) => entry.id === commitModel?.variant)
+                "
+                :value="commitModel.variant"
+                disabled
+              >
+                {{ commitModel.variant }} (not in current catalog)
+              </option>
+              <option v-for="entry in variants" :key="entry.id" :value="entry.id">
+                {{ entry.id }}
+              </option>
+            </select>
+          </label>
+          <p class="setting-description">
+            Default (OpenCode) uses the server's standard model, which may not be lightweight.
+            Settings are saved automatically.
+          </p>
+        </section>
       </div>
     </div>
   </dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import type { ModelInfo } from '@opencode-ai/client';
 import { Icon } from '@iconify/vue';
 import { useSettings } from '../composables/useSettings';
 
 const props = defineProps<{
   open: boolean;
+  models: ModelInfo[];
 }>();
 
 defineEmits<{
@@ -45,7 +94,55 @@ defineEmits<{
 }>();
 
 const dialogRef = ref<HTMLDialogElement | null>(null);
-const { enterToSend } = useSettings();
+const { enterToSend, commitModel } = useSettings();
+const modelKey = computed({
+  get: () =>
+    commitModel.value ? JSON.stringify([commitModel.value.providerID, commitModel.value.id]) : '',
+  set: (key: string) => {
+    if (!key) {
+      commitModel.value = null;
+      return;
+    }
+    const model = props.models.find(
+      (entry) => JSON.stringify([entry.providerID, entry.id]) === key,
+    );
+    if (!model) throw new Error('The selected model is not available in the catalog.');
+    commitModel.value = { providerID: model.providerID, id: model.id };
+  },
+});
+const selectedModel = computed(() =>
+  props.models.find(
+    (model) =>
+      model.providerID === commitModel.value?.providerID && model.id === commitModel.value?.id,
+  ),
+);
+const variants = computed(() =>
+  selectedModel.value ? selectedModel.value.variants.filter((entry) => entry.id !== 'default') : [],
+);
+const variant = computed({
+  get: () => commitModel.value?.variant ?? '',
+  set: (value: string) => {
+    if (!commitModel.value) return;
+    commitModel.value = {
+      providerID: commitModel.value.providerID,
+      id: commitModel.value.id,
+      ...(value ? { variant: value } : {}),
+    };
+  },
+});
+const modelGroups = computed(() => {
+  const groups = new Map<string, ModelInfo[]>();
+  for (const model of props.models) {
+    if (!groups.has(model.providerID)) groups.set(model.providerID, []);
+    groups.get(model.providerID)!.push(model);
+  }
+  return [...groups]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, models]) => ({
+      provider,
+      models: models.toSorted((a, b) => a.name.localeCompare(b.name)),
+    }));
+});
 
 watch(
   () => props.open,
@@ -89,6 +186,8 @@ watch(
 
 .modal {
   width: min(480px, 95vw);
+  max-height: 90dvh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -153,6 +252,33 @@ watch(
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.generation-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 12px;
+}
+.model-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.model-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  color: #e2e8f0;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+.model-field select:disabled {
+  opacity: 0.5;
 }
 
 .setting-label {
