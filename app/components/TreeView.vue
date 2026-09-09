@@ -224,6 +224,7 @@
           v-if="activeDiffStats"
           v-model:open="changesMenuOpen"
           class="tree-changes-dropdown"
+          :disabled="hasNoLineChanges"
           auto-close
           :popup-style="{ width: '230px' }"
           @select="onChangesSelect"
@@ -232,6 +233,7 @@
             <button
               type="button"
               class="tree-branch-stats"
+              :disabled="hasNoLineChanges"
               :title="diffStatsTitle"
               :aria-expanded="changesMenuOpen"
               aria-label="Change actions"
@@ -368,7 +370,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import type { BranchEntry } from '../composables/useFileTree';
 import Dropdown from './Dropdown.vue';
@@ -516,9 +518,18 @@ const activeDiffStats = computed((): GitDiffStatsEntry | null => {
   return stats.changes;
 });
 
+const hasNoLineChanges = computed(
+  () => activeDiffStats.value?.additions === 0 && activeDiffStats.value.deletions === 0,
+);
+
+watch(hasNoLineChanges, (empty) => {
+  if (empty) changesMenuOpen.value = false;
+});
+
 const diffStatsTitle = computed(() => {
   const stats = activeDiffStats.value;
   if (!stats) return '';
+  if (hasNoLineChanges.value) return 'No line changes';
   const parts: string[] = [];
   if (stats.additions > 0) parts.push(`+${stats.additions} insertions`);
   if (stats.deletions > 0) parts.push(`−${stats.deletions} deletions`);
@@ -1165,7 +1176,7 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   transition: background 0.12s ease;
 }
 
-.tree-branch-stats:hover {
+.tree-branch-stats:not(:disabled):hover {
   background: rgba(51, 65, 85, 0.55);
 }
 
@@ -1180,6 +1191,16 @@ function onRowDoubleClick(row: { node: TreeNode }) {
 
 .tree-stat-del {
   color: #c74e39;
+}
+
+.tree-branch-stats:disabled {
+  color: #64748b;
+  cursor: default;
+}
+
+.tree-branch-stats:disabled .tree-stat-add,
+.tree-branch-stats:disabled .tree-stat-del {
+  color: inherit;
 }
 
 .tree-tabs {
