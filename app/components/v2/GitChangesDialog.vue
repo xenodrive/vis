@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
-import type { ModelInfo } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode-ai/client';
 import CommitModelPicker from '../CommitModelPicker.vue';
 import GitDiffFile from './GitDiffFile.vue';
 import {
@@ -18,6 +18,7 @@ const props = defineProps<{
   api: GitActions;
   generate: (prompt: string, signal: AbortSignal) => Promise<string>;
   generationModelLabel: string;
+  resolvedModel?: ModelRef;
   models: ModelInfo[];
 }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
@@ -380,7 +381,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="git-message-controls">
-        <CommitModelPicker :models="models" :disabled="executing" />
+        <CommitModelPicker :models="models" :resolved-model="resolvedModel" :disabled="executing" />
         <button
           type="button"
           class="git-generate"

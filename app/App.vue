@@ -277,13 +277,19 @@
       @close="isProjectPickerOpen = false"
       @select="state.createSession"
     />
-    <SettingsModal :open="isSettingsOpen" :models="models" @close="isSettingsOpen = false" />
+    <SettingsModal
+      :open="isSettingsOpen"
+      :models="models"
+      :resolved-commit-model="resolvedCommitModel"
+      @close="isSettingsOpen = false"
+    />
     <GitChangesDialog
       v-if="gitAction && selected"
       :action="gitAction"
       :api="gitActions"
       :generate="generateCommitMessage"
       :generation-model-label="commitModelLabel"
+      :resolved-model="resolvedCommitModel"
       :models="models"
       @close="gitAction = undefined"
       @changed="fileTree.reload"
@@ -321,6 +327,7 @@ import { presentTranscript } from './v2/presentation';
 import { resolveProjectColorHex } from './utils/stateBuilder';
 import { opencodeTheme, resolveAgentColor, resolveTheme } from './utils/theme';
 import { randomUUID } from './utils/uuid';
+import { selectCommitModel } from './utils/commitModel';
 import type { MessageTokens } from './types/message';
 import type { ModelRef } from '@opencode-ai/client';
 
@@ -414,17 +421,22 @@ const gitActions = createGitActions(pty.inspect, pty.run);
 const fileTree = useV2FileTree(state, fw, gitActions);
 const gitAction = ref<GitAction>();
 const { commitModel } = useSettings();
+const resolvedCommitModel = computed(
+  () => commitModel.value ?? selectCommitModel(models.value, composerModel.value),
+);
 const commitModelLabel = computed(() => {
-  const model = commitModel.value;
+  const model = resolvedCommitModel.value;
   return model
     ? `${model.providerID}/${model.id} · Variant: ${model.variant ?? 'Default'}`
-    : 'Default (OpenCode)';
+    : 'No model available';
 });
 function openGitAction(action: GitAction) {
   if (!gitAction.value) gitAction.value = action;
 }
 function generateCommitMessage(prompt: string, signal: AbortSignal) {
-  return state.generateCommitMessage(prompt, signal, commitModel.value ?? undefined);
+  const model = resolvedCommitModel.value;
+  if (!model) throw new Error('Select a model before generating a commit message.');
+  return state.generateCommitMessage(prompt, signal, model);
 }
 watch(
   () => JSON.stringify([ready.value, selected.value?.id, selected.value?.location]),

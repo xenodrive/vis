@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ModelInfo } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode-ai/client';
 import { useSettings } from '../composables/useSettings';
 import ModelSelect from './ModelSelect.vue';
 import VariantSelect from './VariantSelect.vue';
 
-const props = defineProps<{ models: ModelInfo[]; disabled?: boolean }>();
+const props = defineProps<{ models: ModelInfo[]; resolvedModel?: ModelRef; disabled?: boolean }>();
 const { commitModel } = useSettings();
+const resolvedLabel = computed(() => {
+  const model = props.resolvedModel;
+  if (!model) return 'No model available';
+  const name = props.models.find(
+    (entry) => entry.providerID === model.providerID && entry.id === model.id,
+  )?.name;
+  return `${model.providerID}/${model.id}${name ? ` (${name})` : ''} · Variant: ${model.variant ?? 'Default'}`;
+});
 const options = computed(() =>
   props.models
     .map((model) => ({
@@ -53,7 +61,7 @@ const variants = computed(() =>
     : [undefined],
 );
 const variant = computed({
-  get: () => commitModel.value?.variant,
+  get: () => (commitModel.value ?? props.resolvedModel)?.variant,
   set: (value: string | undefined) => {
     if (!commitModel.value) return;
     commitModel.value = {
@@ -70,9 +78,10 @@ const variant = computed({
       v-model="modelKey"
       :options="options"
       :disabled="disabled"
-      default-label="Default (OpenCode)"
+      default-label="Auto (Lightweight)"
     />
     <VariantSelect v-model="variant" :options="variants" :disabled="disabled || !selectedModel" />
+    <div v-if="!commitModel" class="commit-resolved-model">{{ resolvedLabel }}</div>
   </div>
 </template>
 <style scoped>
@@ -86,5 +95,11 @@ const variant = computed({
 }
 .commit-model-picker > :first-child {
   flex: 1 1 160px;
+}
+.commit-resolved-model {
+  flex: 1 0 100%;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow-wrap: anywhere;
 }
 </style>

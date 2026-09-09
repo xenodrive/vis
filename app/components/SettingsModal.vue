@@ -28,13 +28,12 @@
         </div>
         <section class="generation-settings" aria-labelledby="commit-generation-title">
           <div id="commit-generation-title" class="setting-label">Commit message generation</div>
+          <p class="setting-description">Generate a commit message from the selected changes.</p>
+          <CommitModelPicker :models="models" :resolved-model="resolvedCommitModel" />
           <p class="setting-description">
-            Generate from the commit diff using OpenCode's global model configuration.
-          </p>
-          <CommitModelPicker :models="models" />
-          <p class="setting-description">
-            Default (OpenCode) uses the server's standard model, which may not be lightweight.
-            Settings are saved automatically.
+            Auto (Lightweight) selects a lightweight model from the main input model's provider
+            using OpenCode's title model priorities. If none is available, it uses the main input
+            model. Settings are saved automatically.
           </p>
         </section>
       </div>
@@ -44,7 +43,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { ModelInfo } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode-ai/client';
 import { Icon } from '@iconify/vue';
 import { useSettings } from '../composables/useSettings';
 import CommitModelPicker from './CommitModelPicker.vue';
@@ -52,6 +51,7 @@ import CommitModelPicker from './CommitModelPicker.vue';
 const props = defineProps<{
   open: boolean;
   models: ModelInfo[];
+  resolvedCommitModel?: ModelRef;
 }>();
 
 defineEmits<{
