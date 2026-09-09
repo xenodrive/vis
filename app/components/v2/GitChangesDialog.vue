@@ -178,7 +178,7 @@ function cancelGeneration() {
   generating.value = false;
 }
 
-async function refresh(initial = false) {
+async function refresh() {
   const request = ++revision;
   previewLoading.value = false;
   cancelGeneration();
@@ -195,7 +195,6 @@ async function refresh(initial = false) {
     needsRefresh.value = false;
     if (!files.value.some((file) => file.path === activePath.value))
       activePath.value = files.value[0]?.path ?? '';
-    if (initial && committing.value && patches.value.length) void generateMessage();
     if (activePath.value) void selectFile(activePath.value);
   } catch (cause) {
     if (!disposed && request === revision) {
@@ -336,7 +335,7 @@ watch(targetKey, cancelGeneration, { flush: 'sync' });
 
 onMounted(() => {
   dialog.value?.showModal();
-  void refresh(true);
+  void refresh();
 });
 onBeforeUnmount(() => {
   disposed = true;
@@ -384,16 +383,14 @@ onBeforeUnmount(() => {
         <CommitModelPicker :models="models" :disabled="executing" />
         <button
           type="button"
-          class="git-regenerate"
+          class="git-generate"
           :class="{ 'is-stale': staleMessage }"
           :disabled="disabled || generating || !patches.length"
-          :title="
-            staleMessage ? 'Regenerate for changed commit targets' : 'Regenerate commit message'
-          "
-          aria-label="Regenerate commit message"
+          :title="staleMessage ? 'Generate for changed commit targets' : 'Generate commit message'"
+          aria-label="Generate commit message"
           @click="generateMessage"
         >
-          <Icon icon="mdi:refresh" :width="20" :height="20" />
+          <Icon icon="mdi:auto-fix" :width="20" :height="20" />
         </button>
       </div>
     </section>
@@ -460,7 +457,6 @@ onBeforeUnmount(() => {
             :disabled="loading || executing"
             @click="selectFile(file.path)"
           >
-            <span class="git-file-icon" aria-hidden="true">📄</span>
             <span class="git-file-name">{{ file.path }}</span>
             <span class="git-file-status">{{ fileStatus(file) }}</span>
           </button>
@@ -652,7 +648,7 @@ input:focus-visible {
 }
 .git-file button {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 6px;
   border: 0;
@@ -781,7 +777,7 @@ input:focus-visible {
 .git-message-controls > :first-child {
   flex: 1;
 }
-.git-regenerate {
+.git-generate {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -791,7 +787,7 @@ input:focus-visible {
   flex-shrink: 0;
   color: #94a3b8;
 }
-.git-regenerate.is-stale {
+.git-generate.is-stale {
   color: #e2e8f0;
   border-color: #94a3b8;
 }
