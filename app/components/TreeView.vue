@@ -264,6 +264,16 @@
         <button
           type="button"
           class="tree-tab"
+          :class="{ 'is-active': viewMode === 'all' }"
+          role="tab"
+          :aria-selected="viewMode === 'all'"
+          @click="setViewMode('all')"
+        >
+          All files
+        </button>
+        <button
+          type="button"
+          class="tree-tab"
           :class="{ 'is-active': viewMode === 'changes' }"
           role="tab"
           :aria-selected="viewMode === 'changes'"
@@ -282,16 +292,6 @@
           @click="setViewMode('staged')"
         >
           Staged
-        </button>
-        <button
-          type="button"
-          class="tree-tab"
-          :class="{ 'is-active': viewMode === 'all' }"
-          role="tab"
-          :aria-selected="viewMode === 'all'"
-          @click="setViewMode('all')"
-        >
-          All files
         </button>
       </div>
     </div>
@@ -328,7 +328,7 @@
           type="button"
           class="tree-toggle"
           :aria-label="isExpanded(row.node.path) ? 'Collapse directory' : 'Expand directory'"
-          @click.stop="emit('toggle-dir', row.node.path)"
+          @click.stop="toggleDirectory(row.node.path)"
         >
           <Icon
             :icon="isExpanded(row.node.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
@@ -467,6 +467,13 @@ const hasActiveChanges = computed(() =>
   ),
 );
 const expanded = computed(() => new Set(props.expandedPaths));
+const collapsedGitPaths = ref({ changes: new Set<string>(), staged: new Set<string>() });
+watch(
+  () => props.directoryName,
+  () => {
+    collapsedGitPaths.value = { changes: new Set(), staged: new Set() };
+  },
+);
 const branchIcon = computed(() => (props.branchInfo ? 'lucide:git-branch' : 'lucide:folder'));
 const branchName = computed(() => props.branchInfo?.branch ?? props.directoryName ?? 'no git');
 
@@ -664,7 +671,7 @@ const visibleRows = computed(() => {
   const pushRows = (nodes: TreeNode[], depth: number) => {
     nodes.forEach((node) => {
       rows.push({ node, depth });
-      if (node.type === 'directory' && expanded.value.has(node.path) && node.children?.length) {
+      if (node.type === 'directory' && isExpanded(node.path) && node.children?.length) {
         pushRows(node.children, depth + 1);
       }
     });
@@ -674,7 +681,19 @@ const visibleRows = computed(() => {
 });
 
 function isExpanded(path: string) {
-  return expanded.value.has(path);
+  return viewMode.value === 'all'
+    ? expanded.value.has(path)
+    : !collapsedGitPaths.value[viewMode.value].has(path);
+}
+
+function toggleDirectory(path: string) {
+  if (viewMode.value === 'all') {
+    emit('toggle-dir', path);
+    return;
+  }
+  const collapsed = collapsedGitPaths.value[viewMode.value];
+  if (collapsed.has(path)) collapsed.delete(path);
+  else collapsed.add(path);
 }
 
 function displayStatus(path: string): DisplayStatus | null {
@@ -879,7 +898,7 @@ function onTreeScrollClick(event: MouseEvent) {
 
 function onRowClick(row: { node: TreeNode }, event: MouseEvent) {
   if (row.node.type === 'directory') {
-    emit('toggle-dir', row.node.path);
+    toggleDirectory(row.node.path);
     return;
   }
   if (event.detail > 1) return;

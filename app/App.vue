@@ -284,6 +284,7 @@
       :api="gitActions"
       :generate="generateCommitMessage"
       :generation-model-label="commitModelLabel"
+      :models="models"
       @close="gitAction = undefined"
       @changed="fileTree.reload"
     />

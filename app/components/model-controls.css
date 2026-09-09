@@ -1,0 +1,41 @@
+.model-control-root {
+  min-width: 0;
+}
+:deep(.model-control) {
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+:deep(.model-control:hover:not(:disabled)) {
+  background: rgba(51, 65, 85, 0.35);
+  color: #e2e8f0;
+}
+:deep(.model-control:focus-visible) {
+  outline: 1px solid #60a5fa;
+}
+:deep(.model-control-popup) {
+  max-height: 280px;
+  outline: none;
+}
+:deep(.model-control-popup:has(.model-picker)) {
+  overflow: hidden;
+}
+:deep(.model-control-popup.opens-upward) {
+  top: auto;
+  bottom: anchor(top);
+  margin-top: 0;
+  margin-bottom: 6px;
+  position-try-fallbacks: none;
+}

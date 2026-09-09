@@ -146,14 +146,12 @@ export function useV2FileTree(
     if (!location) return;
     const current = generation;
     try {
-      const stagedSnapshot = staged ? await git.snapshot() : undefined;
-      const changes = stagedSnapshot
-        ? stagedSnapshot.staged
-        : await state.readWorkingDiff(location, controller.signal);
+      const snapshot = await git.snapshot(!staged);
+      const changes = staged ? snapshot.staged : [...snapshot.changes, ...snapshot.untracked];
       if (current !== generation) return;
       const prefix =
-        stagedSnapshot && location.directory !== stagedSnapshot.root
-          ? location.directory.slice(stagedSnapshot.root.length + 1) + '/'
+        location.directory !== snapshot.root
+          ? location.directory.slice(snapshot.root.length + 1) + '/'
           : '';
       const files = path ? changes.filter((file) => file.file === prefix + path) : changes;
       if (!files.length) {
@@ -164,7 +162,7 @@ export function useV2FileTree(
         `working-diff:${JSON.stringify(location)}:${staged ? 'staged' : 'changes'}:${path ?? 'all'}`,
         {
           component: WorkingDiff,
-          props: { files },
+          props: { files, api: git, snapshot, mode: staged ? 'staged' : 'changes' },
           title: path
             ? `${staged ? 'Staged' : 'Changes'}: ${path}`
             : staged

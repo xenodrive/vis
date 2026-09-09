@@ -204,97 +204,24 @@
           </div>
         </div>
         <div class="input-field compact">
-          <div ref="modelDropdownRef" class="input-dropdown-root">
-            <Dropdown
-              v-model="modelValue"
-              :placeholder="hasModelOptions ? 'Select model' : 'Loading models...'"
-              :disabled="settingsLocked || !hasModelOptions"
-              button-class="input-control input-dropdown-button"
-              popup-class="input-dropdown-popup"
-              auto-close
-              title="Model (Ctrl-M)"
-              @update:open="handleModelDropdownOpenChange"
-            >
-              <template #value="{ value: id }">
-                <div class="model-button-label">
-                  <span
-                    v-if="findModelOption(id)?.providerLabel ?? findModelOption(id)?.providerID"
-                    class="model-button-provider"
-                    >{{
-                      findModelOption(id)?.providerLabel ?? findModelOption(id)?.providerID
-                    }}</span
-                  >
-                  <span class="model-button-name">{{ findModelOption(id)?.displayName }}</span>
-                </div>
-              </template>
-              <template #default>
-                <div class="model-picker">
-                  <DropdownSearch
-                    v-model="modelSearchQuery"
-                    placeholder="Search..."
-                    class="model-search"
-                  />
-                  <div class="model-picker-list">
-                    <div class="dropdown-list">
-                      <div v-if="!hasModelOptions" class="dropdown-empty">Loading models...</div>
-                      <div
-                        v-else-if="filteredGroupedModelOptions.length === 0"
-                        class="dropdown-empty"
-                      >
-                        No matching models
-                      </div>
-                      <template
-                        v-for="group in filteredGroupedModelOptions"
-                        :key="group.providerID"
-                      >
-                        <DropdownLabel>{{ group.label }}</DropdownLabel>
-                        <DropdownItem
-                          v-for="model in group.models"
-                          :key="model.id"
-                          :value="model.id"
-                        >
-                          <div class="model-dropdown-item">
-                            <span class="model-dropdown-name">{{ model.displayName }}</span>
-                            <span class="model-dropdown-path"
-                              >{{ model.providerID }}/{{ model.modelID }}</span
-                            >
-                          </div>
-                        </DropdownItem>
-                      </template>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </Dropdown>
-          </div>
+          <ModelSelect
+            ref="modelPickerRef"
+            v-model="modelValue"
+            :options="modelOptions"
+            :disabled="settingsLocked || !hasModelOptions"
+            upward
+            @update:open="handleModelDropdownOpenChange"
+          />
         </div>
         <div class="input-field compact">
-          <Dropdown
-            v-model="thinkingKeyValue"
-            :placeholder="hasThinkingOptions ? 'Select variant' : 'Loading...'"
+          <VariantSelect
+            :model-value="selectedThinking"
+            :options="thinkingOptions"
             :disabled="settingsLocked || !hasThinkingOptions"
-            button-class="input-control input-dropdown-button"
-            popup-class="input-dropdown-popup"
-            auto-close
-            title="Variant (Ctrl-, / Ctrl-.)"
+            upward
+            @update:model-value="emit('update:selected-thinking', $event)"
             @update:open="handleModelDropdownOpenChange"
-          >
-            <template #value="{ value: key }">
-              <span :style="thinkingValueStyle(key)">{{ findThinkingChoice(key)?.label }}</span>
-            </template>
-            <template #default>
-              <div class="dropdown-list">
-                <div v-if="!hasThinkingOptions" class="dropdown-empty">Loading...</div>
-                <DropdownItem
-                  v-for="option in thinkingChoices"
-                  :key="option.key"
-                  :value="option.key"
-                >
-                  <span class="dropdown-item-label">{{ option.label }}</span>
-                </DropdownItem>
-              </div>
-            </template>
-          </Dropdown>
+          />
         </div>
         <div class="input-actions">
           <button
@@ -374,22 +301,13 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
-import DropdownLabel from './Dropdown/Label.vue';
-import DropdownSearch from './Dropdown/Search.vue';
+import ModelSelect, { type ModelOption } from './ModelSelect.vue';
+import VariantSelect from './VariantSelect.vue';
 import { useMessages } from '../composables/useMessages';
 import { useFavoriteMessages } from '../composables/useFavoriteMessages';
 import { useSettings } from '../composables/useSettings';
-type ModelOption = {
-  id: string;
-  modelID: string;
-  label: string;
-  displayName: string;
-  providerID?: string;
-  providerLabel?: string;
-};
 type CommandOption = { name: string; description?: string; hints?: string[] };
 type AgentOption = { id: string; label: string; description?: string; color?: string };
-type ThinkingChoice = { key: string; value: string | undefined; label: string };
 
 const props = defineProps<{
   messageInput: string;
@@ -444,8 +362,7 @@ const settingsLocked = computed(() => props.disabled || props.isThinking);
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const modelDropdownRef = ref<HTMLElement | null>(null);
-const modelSearchQuery = ref('');
+const modelPickerRef = ref<InstanceType<typeof ModelSelect>>();
 const acceptMime = 'image/png,image/jpeg,image/gif,image/webp';
 
 const { enterToSend, suppressAutoWindows } = useSettings();
@@ -720,19 +637,11 @@ function cycleVariant(direction: 'next' | 'prev') {
 
 function openModelPicker() {
   if (settingsLocked.value || !props.hasModelOptions) return false;
-  const root = modelDropdownRef.value;
-  if (!root) return false;
-  const button = root.querySelector('button');
-  if (!(button instanceof HTMLButtonElement)) return false;
-  button.focus();
-  button.click();
-  return true;
+  return modelPickerRef.value?.open() === true;
 }
 
 function handleModelDropdownOpenChange(open: boolean) {
-  if (open) {
-    modelSearchQuery.value = '';
-  } else {
+  if (!open) {
     nextTick(() => {
       textareaRef.value?.focus();
     });
@@ -928,81 +837,6 @@ function findModelOption(id: unknown): ModelOption | undefined {
   return (props.modelOptions ?? []).find((m) => m.id === id);
 }
 
-const thinkingChoices = computed<ThinkingChoice[]>(() =>
-  (props.thinkingOptions ?? []).map((option) => ({
-    key: option ?? '__default',
-    value: option,
-    label: option === undefined ? '<default>' : option,
-  })),
-);
-
-const selectedThinkingChoice = computed<ThinkingChoice | undefined>(() =>
-  thinkingChoices.value.find((option) => option.value === props.selectedThinking),
-);
-
-const thinkingKeyValue = computed({
-  get: () => selectedThinkingChoice.value?.key,
-  set: (key: string) => {
-    if (settingsLocked.value) return;
-    const choice = thinkingChoices.value.find((c) => c.key === key);
-    emit('update:selected-thinking', choice?.value);
-  },
-});
-
-function findThinkingChoice(key: unknown): ThinkingChoice | undefined {
-  if (key == null) return undefined;
-  return thinkingChoices.value.find((c) => c.key === key);
-}
-
-function thinkingValueStyle(key: unknown) {
-  const choice = findThinkingChoice(key);
-  if (!choice || choice.value === undefined) return undefined;
-  return { color: '#f59e0b' };
-}
-
-const groupedModelOptions = computed(() => {
-  const grouped = new Map<string, { providerID: string; label: string; models: ModelOption[] }>();
-  const models = (props.modelOptions ?? []).map((model) => ({
-    ...model,
-    displayName: model.displayName || model.label,
-  }));
-  models.forEach((model) => {
-    const providerID = model.providerID?.trim() || 'unknown';
-    const providerLabel = model.providerLabel?.trim() || providerID;
-    const existing = grouped.get(providerID);
-    if (existing) {
-      existing.models.push(model);
-      return;
-    }
-    grouped.set(providerID, {
-      providerID,
-      label: providerLabel,
-      models: [model],
-    });
-  });
-  return Array.from(grouped.values());
-});
-
-function matchesQuery(query: string, ...fields: (string | undefined)[]) {
-  const terms = query.split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return false;
-  return terms.every((term) => fields.some((field) => field?.toLowerCase().includes(term)));
-}
-
-const filteredGroupedModelOptions = computed(() => {
-  const query = modelSearchQuery.value.trim().toLowerCase();
-  if (!query) return groupedModelOptions.value;
-  return groupedModelOptions.value
-    .map((group) => {
-      const models = group.models.filter((model) =>
-        matchesQuery(query, model.displayName, model.modelID, model.providerID, group.label),
-      );
-      if (models.length === 0) return null;
-      return { ...group, models };
-    })
-    .filter((group): group is NonNullable<typeof group> => group !== null);
-});
-
 function focus() {
   textareaRef.value?.focus();
 }
@@ -1010,7 +844,7 @@ function focus() {
 function reset() {
   historyOpen.value = false;
   favoritesOpen.value = false;
-  modelSearchQuery.value = '';
+  modelPickerRef.value?.reset();
 }
 
 defineExpose({ focus, reset });
@@ -1144,10 +978,6 @@ const inputMessageStyle = computed(() => {
   min-width: 320px;
 }
 
-:deep(.input-dropdown-popup:has(.model-picker)) {
-  overflow: hidden;
-}
-
 .dropdown-list {
   display: flex;
   flex-direction: column;
@@ -1189,83 +1019,6 @@ const inputMessageStyle = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.model-button-label {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  line-height: 1.15;
-  text-align: left;
-  align-self: flex-start;
-}
-
-.model-button-provider {
-  position: fixed;
-  font-size: 9px;
-  color: #94a3b8;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  transform: translate(-3px, -11px);
-}
-
-.model-button-name {
-  font-size: 12px;
-  color: #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-picker {
-  display: flex;
-  flex-direction: column;
-  max-height: calc(280px - 12px);
-  overflow: hidden;
-  margin: -6px;
-  padding: 6px;
-}
-
-.model-picker-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.model-search {
-  flex: 0 0 auto;
-  padding: 0 0 4px;
-}
-
-.model-search :deep(.ui-dropdown-search-input) {
-  border-radius: 6px;
-  font-size: 11px;
-  font-family: inherit;
-  padding: 4px 6px;
-}
-
-.model-dropdown-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-}
-
-.model-dropdown-name {
-  font-size: 12px;
-  color: #e2e8f0;
-  line-height: 1.2;
-}
-
-.model-dropdown-path {
-  font-size: 10px;
-  color: #94a3b8;
-  line-height: 1.2;
 }
 
 .input-textarea:disabled {

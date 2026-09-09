@@ -97,7 +97,7 @@ const activeEntry = computed(() => {
     return {
       file: props.path ?? '',
       before: props.diffCode ?? '',
-      after: props.diffAfter ?? '',
+      after: props.diffAfter,
       beforeBase64: props.diffCodeBase64,
       afterBase64: props.diffAfterBase64,
     };
@@ -140,7 +140,7 @@ watch(
 
 const activeFilePath = computed(() => activeEntry.value.file || props.path || '');
 const activeBefore = computed(() => activeEntry.value.before ?? '');
-const activeAfter = computed(() => activeEntry.value.after ?? '');
+const activeAfter = computed(() => activeEntry.value.after);
 const activeDiffPatch = computed(() =>
   props.diffTabs && props.diffTabs.length > 0 ? undefined : props.diffPatch,
 );

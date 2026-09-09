@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import DiffViewer from '../viewers/DiffViewer.vue';
+import GitDiffFile from './GitDiffFile.vue';
+import type { GitActions, GitSnapshot, GitDiffMode, GitPatch } from '../../v2/git';
 const props = defineProps<{
-  files: { file: string; patch: string; additions: number; deletions: number }[];
+  files: GitPatch[];
+  api: GitActions;
+  snapshot: GitSnapshot;
+  mode: 'staged' | 'changes';
 }>();
 const index = ref(0);
 const active = computed(() => props.files[index.value]);
+const loading = ref(false);
+const error = ref('');
+function mode(file: GitPatch): GitDiffMode {
+  return props.snapshot.untracked.some((entry) => entry.file === file.file)
+    ? 'untracked'
+    : props.mode;
+}
+function report(cause: unknown) {
+  error.value = cause instanceof Error ? cause.message : JSON.stringify(cause);
+}
 </script>
 
 <template>
@@ -20,13 +34,22 @@ const active = computed(() => props.files[index.value]);
         {{ file.file }} <span>+{{ file.additions }} −{{ file.deletions }}</span>
       </button>
     </div>
-    <DiffViewer
-      v-if="active"
-      :key="active.file"
-      :path="active.file"
-      :diff-patch="active.patch"
-      theme="github-dark"
-    />
+    <div class="diff-body">
+      <KeepAlive
+        ><GitDiffFile
+          v-if="active"
+          :key="active.file"
+          :file="active"
+          :api="api"
+          :snapshot="snapshot"
+          :mode="mode(active)"
+          @loading="loading = $event"
+          @error="report"
+      /></KeepAlive>
+    </div>
+    <div class="diff-status" role="status" :title="error">
+      {{ error || (loading ? 'Loading diff…' : '') }}
+    </div>
   </div>
 </template>
 
@@ -42,6 +65,22 @@ const active = computed(() => props.files[index.value]);
   flex-shrink: 0;
   overflow-x: auto;
   border-bottom: 1px solid #334155;
+}
+.diff-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.diff-status {
+  flex: 0 0 24px;
+  height: 24px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-top: 1px solid #334155;
 }
 button {
   white-space: nowrap;

@@ -3,6 +3,7 @@ import { fromHighlighter, type MarkdownItShikiSetupOptions } from '@shikijs/mark
 import { bundledLanguages, createHighlighter } from 'shiki/bundle/web';
 import { bundledLanguages as allBundledLanguages } from 'shiki/langs';
 import { transformerNotationDiff } from '@shikijs/transformers';
+import { diffSourceFromFullPatch } from '../utils/diffSources';
 
 type RenderRequest = {
   id: string;
@@ -663,19 +664,9 @@ function buildDiffHtmlFromCode(
   return getHighlighter(theme).then(async (highlighter) => {
     const resolvedLang = await resolveLanguage(highlighter, lang);
 
-    let effectiveBefore = before;
-    let effectiveAfter = after;
-    if (!before.trim() && diff.trim()) {
-      const reconstructed = reconstructSourcesFromDiff(diff);
-      effectiveBefore = reconstructed.before;
-      effectiveAfter = reconstructed.after;
-    }
-
     const { maxOld, maxNew } = diffMaxLines(diff);
-    const trimmedBefore =
-      maxOld > 0 ? effectiveBefore.split('\n').slice(0, maxOld).join('\n') : effectiveBefore;
-    const trimmedAfter =
-      maxNew > 0 ? effectiveAfter.split('\n').slice(0, maxNew).join('\n') : effectiveAfter;
+    const trimmedBefore = maxOld > 0 ? before.split('\n').slice(0, maxOld).join('\n') : before;
+    const trimmedAfter = maxNew > 0 ? after.split('\n').slice(0, maxNew).join('\n') : after;
 
     const beforeHtml = safeCodeToHtml(highlighter, trimmedBefore, resolvedLang, theme);
     const afterHtml = safeCodeToHtml(highlighter, trimmedAfter, resolvedLang, theme);
@@ -865,7 +856,6 @@ function taskListEmojiPlugin(md: MarkdownIt) {
   });
 }
 
-
 function getMarkdownIt(highlighter: Highlighter, theme: string) {
   if (
     !cachedMd ||
@@ -972,6 +962,25 @@ async function renderMarkdownHtml(request: RenderRequest): Promise<string> {
 
 function renderRequest(request: RenderRequest): Promise<string> {
   if (request.patch) {
+    if (!request.code && request.after === undefined) {
+      const complete = diffSourceFromFullPatch('', request.patch);
+      if (complete)
+        return renderRequest({
+          ...request,
+          patch: undefined,
+          code: complete.before,
+          after: complete.after,
+        });
+      const sources = reconstructSourcesFromDiff(request.patch);
+      return buildDiffHtmlFromCode(
+        sources.before,
+        sources.after,
+        request.patch,
+        request.lang,
+        request.theme,
+        request.gutterMode ?? 'double',
+      );
+    }
     const after = request.after ?? applyPatchToCode(request.code, request.patch);
     return buildDiffHtmlFromCode(
       request.code,
@@ -996,6 +1005,7 @@ function renderRequest(request: RenderRequest): Promise<string> {
         request.gutterMode ?? 'double',
       );
     }
+    return Promise.resolve(buildHtmlFromRows('<span class="line">No changes.</span>'));
   }
 
   if (request.grepPattern !== undefined) {

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import DiffViewer from '../viewers/DiffViewer.vue';
+import { Icon } from '@iconify/vue';
+import type { ModelInfo } from '@opencode-ai/client';
+import CommitModelPicker from '../CommitModelPicker.vue';
+import GitDiffFile from './GitDiffFile.vue';
 import {
   patchHunks,
   selectedPatch,
   type GitAction,
   type GitActions,
-  type GitPatch,
   type GitSnapshot,
 } from '../../v2/git';
 import { opencodeTheme, resolveTheme } from '../../utils/theme';
@@ -16,6 +18,7 @@ const props = defineProps<{
   api: GitActions;
   generate: (prompt: string, signal: AbortSignal) => Promise<string>;
   generationModelLabel: string;
+  models: ModelInfo[];
 }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const dialog = ref<HTMLDialogElement>();
@@ -23,11 +26,9 @@ const confirmation = ref<HTMLDialogElement>();
 const snapshot = ref<GitSnapshot>();
 const activePath = ref('');
 const untracked = ref<string[]>([]);
-const previews = ref<Record<string, GitPatch>>(Object.create(null));
 const selection = ref<Record<string, 'all' | number[]>>(Object.create(null));
 const message = ref('');
 const generatedFor = ref('');
-const generatedModel = ref('');
 const error = ref('');
 const loading = ref(false);
 const executing = ref(false);
@@ -43,7 +44,6 @@ const branch = computed(() => {
 });
 let disposed = false;
 let revision = 0;
-let previewRevision = 0;
 let generation: AbortController | undefined;
 
 const committing = computed(() => props.action.startsWith('commit-'));
@@ -57,7 +57,7 @@ const title = computed(
       'commit-all': 'Commit changes (-a)',
     })[props.action],
 );
-const patches = computed(() => {
+const basePatches = computed(() => {
   if (!snapshot.value) return [];
   return staged.value
     ? snapshot.value.staged
@@ -65,6 +65,14 @@ const patches = computed(() => {
       ? snapshot.value.changes
       : snapshot.value.unstaged;
 });
+const patches = computed(() =>
+  props.action === 'commit-all' && snapshot.value
+    ? [
+        ...basePatches.value,
+        ...snapshot.value.untracked.filter((file) => untracked.value.includes(file.file)),
+      ]
+    : basePatches.value,
+);
 const untrackedPaths = computed(() =>
   snapshot.value
     ? Object.values(snapshot.value.status)
@@ -72,39 +80,97 @@ const untrackedPaths = computed(() =>
         .map((file) => file.path)
     : [],
 );
-const files = computed(() => [
-  ...patches.value.map((file) => ({
-    path: file.file,
-    untracked: untrackedPaths.value.includes(file.file),
-  })),
-  ...(!staged.value
-    ? untrackedPaths.value
-        .filter((path) => !patches.value.some((file) => file.file === path))
-        .map((path) => ({ path, untracked: true }))
-    : []),
-]);
+const files = computed(() =>
+  [
+    ...basePatches.value.map((file) => ({
+      path: file.file,
+      untracked: untrackedPaths.value.includes(file.file),
+    })),
+    ...(!staged.value
+      ? untrackedPaths.value
+          .filter((path) => !basePatches.value.some((file) => file.file === path))
+          .map((path) => ({ path, untracked: true }))
+      : []),
+  ].toSorted((a, b) => a.path.localeCompare(b.path)),
+);
 const active = computed(
   () =>
-    patches.value.find((file) => file.file === activePath.value) ??
-    previews.value[activePath.value],
+    basePatches.value.find((file) => file.file === activePath.value) ??
+    snapshot.value?.untracked.find((file) => file.file === activePath.value),
+);
+const activeMode = computed(() =>
+  untrackedPaths.value.includes(activePath.value)
+    ? 'untracked'
+    : staged.value
+      ? 'staged'
+      : committing.value
+        ? 'changes'
+        : 'unstaged',
 );
 const hunks = computed(() => (active.value && !committing.value ? patchHunks(active.value) : []));
-const selectedCount = computed(() => Object.keys(selection.value).length);
 const targetKey = computed(() => JSON.stringify(patches.value));
 const staleMessage = computed(() =>
   Boolean(generatedFor.value && generatedFor.value !== targetKey.value),
 );
 const disabled = computed(() => loading.value || executing.value || needsRefresh.value);
+const statusText = computed(() => {
+  if (error.value) return error.value;
+  if (loading.value) return 'Loading changes…';
+  if (previewLoading.value) return 'Loading diff…';
+  if (generating.value) return 'Generating commit message…';
+  return `${files.value.length} files`;
+});
+const statusBusy = computed(() => loading.value || previewLoading.value || generating.value);
 const canSubmit = computed(
   () =>
     !disabled.value &&
     (committing.value
       ? patches.value.length > 0 && message.value.trim().length > 0 && !generating.value
-      : selectedCount.value > 0),
+      : Object.keys(selection.value).length > 0),
 );
 
+const checkablePaths = computed(() =>
+  committing.value
+    ? staged.value
+      ? []
+      : untrackedPaths.value
+    : files.value.map((file) => file.path),
+);
+const canCheckFiles = computed(
+  () => !loading.value && !executing.value && checkablePaths.value.length > 0,
+);
+function checkAll(checked: boolean) {
+  if (!canCheckFiles.value) return;
+  if (committing.value) {
+    untracked.value = checked ? [...checkablePaths.value] : [];
+  } else
+    selection.value = Object.fromEntries(
+      checked ? checkablePaths.value.map((path) => [path, 'all']) : [],
+    );
+}
+
+function fileStatus(file: { path: string; untracked: boolean }) {
+  if (file.untracked) return 'U';
+  const patch = basePatches.value.find((entry) => entry.file === file.path);
+  const status = snapshot.value?.status[file.path];
+  if (
+    /^deleted file mode /m.test(patch?.patch ?? '') &&
+    /^new file mode /m.test(patch?.patch ?? '')
+  )
+    return 'M';
+  if (/^deleted file mode /m.test(patch?.patch ?? '')) return 'D';
+  if (/^new file mode /m.test(patch?.patch ?? '')) return 'A';
+  const code = staged.value ? status?.index : status?.worktree || status?.index;
+  return code === 'T' ? 'M' : code;
+}
+
 function report(cause: unknown) {
-  error.value = cause instanceof Error ? cause.message : String(cause);
+  error.value =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === 'object' && cause !== null
+        ? JSON.stringify(cause, null, 2)
+        : String(cause);
 }
 
 function cancelGeneration() {
@@ -114,16 +180,17 @@ function cancelGeneration() {
 
 async function refresh(initial = false) {
   const request = ++revision;
-  previewRevision++;
   previewLoading.value = false;
   cancelGeneration();
   loading.value = true;
   error.value = '';
   try {
-    const result = await props.api.snapshot(untracked.value);
+    const result = await props.api.snapshot(true);
     if (disposed || request !== revision) return;
     snapshot.value = result;
-    previews.value = Object.create(null);
+    untracked.value = untracked.value.filter((path) =>
+      result.untracked.some((file) => file.file === path),
+    );
     selection.value = Object.create(null);
     needsRefresh.value = false;
     if (!files.value.some((file) => file.path === activePath.value))
@@ -140,20 +207,9 @@ async function refresh(initial = false) {
   }
 }
 
-async function selectFile(path: string) {
+function selectFile(path: string) {
   activePath.value = path;
-  const request = ++previewRevision;
-  previewLoading.value = false;
-  if (active.value || !untrackedPaths.value.includes(path)) return;
-  previewLoading.value = true;
-  try {
-    const file = await props.api.untrackedPatch(path);
-    if (!disposed && request === previewRevision) previews.value[path] = file;
-  } catch (cause) {
-    if (!disposed && request === previewRevision) report(cause);
-  } finally {
-    if (!disposed && request === previewRevision) previewLoading.value = false;
-  }
+  error.value = '';
 }
 
 function toggleFile(path: string) {
@@ -173,16 +229,10 @@ function toggleHunk(index: number) {
       chosen.size === hunks.value.length ? 'all' : [...chosen].sort((a, b) => a - b);
 }
 
-function hunkSelected(index: number) {
-  const value = selection.value[activePath.value];
-  return value === 'all' || Boolean(value?.includes(index));
-}
-
-async function toggleUntracked(path: string) {
+function toggleUntracked(path: string) {
   untracked.value = untracked.value.includes(path)
     ? untracked.value.filter((entry) => entry !== path)
     : [...untracked.value, path];
-  await refresh(!message.value && !generatedFor.value);
 }
 
 async function generateMessage() {
@@ -191,7 +241,6 @@ async function generateMessage() {
   const controller = new AbortController();
   generation = controller;
   const key = targetKey.value;
-  const modelLabel = props.generationModelLabel;
   const previous = message.value;
   generating.value = true;
   error.value = '';
@@ -221,7 +270,6 @@ async function generateMessage() {
     if (!text.trim()) throw new Error('Message generation returned empty text.');
     message.value = text.trim();
     generatedFor.value = key;
-    generatedModel.value = modelLabel;
   } catch (cause) {
     if (!disposed && !controller.signal.aborted) report(cause);
   } finally {
@@ -240,7 +288,7 @@ async function execute() {
   executing.value = true;
   error.value = '';
   try {
-    const current = await props.api.snapshot(untracked.value);
+    const current = await props.api.snapshot(true);
     if (disposed) return;
     if (JSON.stringify(current) !== JSON.stringify(snapshot.value)) {
       needsRefresh.value = true;
@@ -284,6 +332,7 @@ function submit() {
 }
 
 watch(() => props.generationModelLabel, cancelGeneration, { flush: 'sync' });
+watch(targetKey, cancelGeneration, { flush: 'sync' });
 
 onMounted(() => {
   dialog.value?.showModal();
@@ -292,7 +341,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true;
   revision++;
-  previewRevision++;
   cancelGeneration();
 });
 </script>
@@ -316,21 +364,7 @@ onBeforeUnmount(() => {
     <section v-if="committing" class="git-message">
       <div class="git-message-heading">
         <label for="git-commit-message">Commit message</label>
-        <button
-          type="button"
-          :disabled="disabled || generating || !patches.length"
-          @click="generateMessage"
-        >
-          {{ generating ? 'Generating…' : 'Regenerate' }}
-        </button>
       </div>
-      <p class="git-generation-model">Model: {{ generationModelLabel }}</p>
-      <p
-        v-if="generatedModel && generatedModel !== generationModelLabel"
-        class="git-generation-model"
-      >
-        Last generated with: {{ generatedModel }}
-      </p>
       <div class="git-message-input" :class="{ 'is-generating': generating }">
         <textarea
           id="git-commit-message"
@@ -346,43 +380,61 @@ onBeforeUnmount(() => {
           Generating commit message…
         </div>
       </div>
-      <small v-if="staleMessage"
-        >Commit targets changed. Regenerate the message or update it manually.</small
-      >
+      <div class="git-message-controls">
+        <CommitModelPicker :models="models" :disabled="executing" />
+        <button
+          type="button"
+          class="git-regenerate"
+          :class="{ 'is-stale': staleMessage }"
+          :disabled="disabled || generating || !patches.length"
+          :title="
+            staleMessage ? 'Regenerate for changed commit targets' : 'Regenerate commit message'
+          "
+          aria-label="Regenerate commit message"
+          @click="generateMessage"
+        >
+          <Icon icon="mdi:refresh" :width="20" :height="20" />
+        </button>
+      </div>
     </section>
     <div class="git-toolbar">
-      <span v-if="committing"
-        >{{ patches.length }} files to commit{{
-          action === 'commit-all' ? ' · Includes staged changes and all tracked modifications' : ''
-        }}</span
+      <div class="git-selection-tools">
+        <button
+          type="button"
+          :disabled="!canCheckFiles"
+          :title="committing ? 'Check all untracked files' : 'Check all files'"
+          :aria-label="committing ? 'Check all untracked files' : 'Check all files'"
+          @click="checkAll(true)"
+        >
+          <Icon icon="mdi:checkbox-multiple-marked-outline" :width="18" :height="18" />
+        </button>
+        <button
+          type="button"
+          :disabled="!canCheckFiles"
+          :title="committing ? 'Uncheck all untracked files' : 'Uncheck all files'"
+          :aria-label="committing ? 'Uncheck all untracked files' : 'Uncheck all files'"
+          @click="checkAll(false)"
+        >
+          <Icon icon="mdi:checkbox-multiple-blank-outline" :width="18" :height="18" />
+        </button>
+      </div>
+      <button
+        type="button"
+        :disabled="loading || executing"
+        title="Refresh"
+        aria-label="Refresh"
+        @click="refresh()"
       >
-      <span v-else>{{ selectedCount }} files selected · Changes are applied when you confirm.</span>
-      <button type="button" :disabled="loading || executing" @click="refresh()">Refresh</button>
+        <Icon icon="mdi:refresh" :width="18" :height="18" />
+      </button>
     </div>
-    <p v-if="error" class="git-error" role="alert">{{ error }}</p>
-    <div v-if="loading" class="git-notice" role="status">Loading changes…</div>
     <div class="git-panes" :aria-busy="loading">
       <nav class="git-files" aria-label="Changed files">
-        <div v-if="!committing && files.length" class="git-selection-tools">
-          <button
-            type="button"
-            :disabled="disabled"
-            @click="selection = Object.fromEntries(files.map((file) => [file.path, 'all']))"
-          >
-            Select all
-          </button>
-          <button type="button" :disabled="disabled" @click="selection = Object.create(null)">
-            Clear
-          </button>
-        </div>
-        <p v-if="action === 'commit-all' && untrackedPaths.length" class="git-notice">
-          Untracked files are excluded unless checked.
-        </p>
         <div
           v-for="file in files"
           :key="file.path"
           class="git-file"
-          :class="{ active: activePath === file.path }"
+          :class="[{ active: activePath === file.path }, `git-status-${fileStatus(file)}`]"
         >
           <input
             v-if="!committing"
@@ -401,58 +453,52 @@ onBeforeUnmount(() => {
             :disabled="loading || executing"
             @change="toggleUntracked(file.path)"
           />
+          <span v-else class="git-checkbox-spacer" aria-hidden="true"></span>
           <button
             type="button"
             :title="file.path"
             :disabled="loading || executing"
             @click="selectFile(file.path)"
           >
-            {{ file.path }}<small v-if="file.untracked">Untracked</small>
+            <span class="git-file-icon" aria-hidden="true">📄</span>
+            <span class="git-file-name">{{ file.path }}</span>
+            <span class="git-file-status">{{ fileStatus(file) }}</span>
           </button>
         </div>
         <p v-if="!files.length && !loading" class="git-notice">No changes.</p>
       </nav>
       <section class="git-diff" aria-label="File diff">
-        <p v-if="previewLoading" class="git-notice">Loading diff…</p>
-        <template v-else-if="active">
-          <div class="git-diff-heading">
-            {{ active.file }} <span class="git-add">+{{ active.additions }}</span>
-            <span class="git-del">−{{ active.deletions }}</span>
-          </div>
-          <p v-if="active.binary" class="git-notice">
-            {{ committing ? 'Binary file changed.' : 'Binary change · Select the whole file.' }}
-          </p>
-          <pre v-else-if="!/^@@ /m.test(active.patch)" class="git-patch-metadata">{{
-            active.patch
-          }}</pre>
-          <template v-else-if="hunks.length">
-            <div v-for="(_, index) in hunks" :key="index" class="git-hunk">
-              <label
-                ><input
-                  type="checkbox"
-                  :checked="hunkSelected(index)"
-                  :disabled="disabled"
-                  @change="toggleHunk(index)"
-                />
-                Hunk {{ index + 1 }}</label
-              >
-              <DiffViewer
-                :path="active.file"
-                :diff-patch="selectedPatch(active, [index])"
-                theme="github-dark"
-              />
-            </div>
-          </template>
-          <DiffViewer
-            v-else
-            :key="active.file + active.patch"
-            :path="active.file"
-            :diff-patch="active.patch"
-            theme="github-dark"
+        <KeepAlive>
+          <GitDiffFile
+            v-if="active && snapshot"
+            :key="active.file"
+            :api="api"
+            :snapshot="snapshot"
+            :file="active"
+            :mode="activeMode"
+            :selectable="!committing"
+            :selection="selection[activePath]"
+            :disabled="disabled"
+            @loading="previewLoading = $event"
+            @error="report"
+            @toggle-hunk="toggleHunk"
           />
-        </template>
-        <p v-else class="git-notice">Select a file to review its diff.</p>
+        </KeepAlive>
+        <p v-if="!active && !previewLoading && !loading" class="git-notice">
+          Select a file to review its diff.
+        </p>
       </section>
+    </div>
+    <div class="git-statusbar" :class="{ 'has-error': error }">
+      <Icon v-if="error" icon="mdi:alert-circle-outline" :width="14" :height="14" />
+      <Icon
+        v-else-if="statusBusy"
+        icon="mdi:loading"
+        :width="14"
+        :height="14"
+        class="git-status-spinner"
+      />
+      <span :role="error ? 'alert' : 'status'" :title="statusText">{{ statusText }}</span>
     </div>
     <footer>
       <button type="button" :disabled="executing" @click="close">Cancel</button>
@@ -527,12 +573,6 @@ footer,
   gap: 12px;
   padding: 12px 16px;
 }
-.git-generation-model {
-  color: #94a3b8;
-  font-size: 11px;
-  margin: 0 0 8px;
-  overflow-wrap: anywhere;
-}
 header,
 .git-toolbar {
   border-bottom: 1px solid #334155;
@@ -590,28 +630,84 @@ input:focus-visible {
   line-height: var(--term-line-height);
 }
 .git-file {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  padding: 4px 10px;
+  min-height: 28px;
+  padding: 0 10px;
+  color: #e2e8f0;
+}
+.git-file > input,
+.git-checkbox-spacer {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+.git-file:hover {
+  background: rgba(30, 41, 59, 0.5);
 }
 .git-file.active {
   background: #1e293b;
 }
 .git-file button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 6px;
   border: 0;
+  border-radius: 0;
+  padding: 4px 0;
   text-align: left;
-  overflow-wrap: anywhere;
-  flex: 1;
+  color: inherit;
+  background: transparent;
+  font-size: 12px;
   min-width: 0;
 }
-.git-file small {
-  display: block;
+.git-file-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.git-file-status {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  height: 16px;
+  line-height: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.git-status-M {
+  color: #e2c08d;
+}
+.git-status-A,
+.git-status-U {
+  color: #73c991;
+}
+.git-status-D {
+  color: #c74e39;
+}
+.git-status-R,
+.git-status-C {
+  color: #4ec9b0;
 }
 .git-selection-tools {
   display: flex;
   gap: 8px;
-  padding: 10px;
+}
+.git-toolbar {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+.git-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #94a3b8;
 }
 .git-diff-heading {
   padding: 10px;
@@ -640,13 +736,32 @@ input:focus-visible {
 .git-notice {
   padding: 12px;
 }
-.git-error {
+.git-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 26px;
+  min-height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid #334155;
+  color: #94a3b8;
+  font-size: 11px;
+  overflow: hidden;
+}
+.git-statusbar > svg {
+  flex-shrink: 0;
+}
+.git-statusbar > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-statusbar.has-error {
   color: #fca5a5;
-  padding: 8px 16px;
-  white-space: pre-wrap;
-  max-height: 100px;
-  overflow: auto;
-  font-size: 12px;
+}
+.git-status-spinner {
+  animation: git-message-spin 0.8s linear infinite;
 }
 .git-message {
   flex-shrink: 0;
@@ -656,6 +771,29 @@ input:focus-visible {
 .git-message-heading {
   padding: 10px 0;
   font-size: 12px;
+}
+.git-message-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+.git-message-controls > :first-child {
+  flex: 1;
+}
+.git-regenerate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+.git-regenerate.is-stale {
+  color: #e2e8f0;
+  border-color: #94a3b8;
 }
 .git-message-input {
   position: relative;
@@ -711,7 +849,8 @@ input:focus-visible {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .git-message-spinner {
+  .git-message-spinner,
+  .git-status-spinner {
     animation: none;
   }
 }

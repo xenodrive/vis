@@ -56,7 +56,7 @@ export const opencodeTheme: ThemeJson = {
   },
   theme: {
     primary: {
-      dark: 'darkStep9',
+      dark: 'darkSecondary',
       light: 'lightStep9',
     },
     secondary: {

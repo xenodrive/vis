@@ -1,6 +1,13 @@
 import type { GitFileStatus, GitStatusCode } from '../components/TreeView.vue';
 
 export type GitAction = 'stage' | 'unstage' | 'commit-staged' | 'commit-all';
+export type GitDiffMode = 'staged' | 'unstaged' | 'changes' | 'untracked';
+export type GitSource = {
+  before: string;
+  after: string;
+  beforeBase64: string;
+  afterBase64: string;
+};
 export type GitPatch = {
   file: string;
   patch: string;
@@ -13,10 +20,13 @@ export type GitSnapshot = {
   head: string;
   branchRef: string;
   indexTree: string;
+  workingTree: string;
+  untrackedTree: string;
   status: Record<string, GitFileStatus>;
   staged: GitPatch[];
   unstaged: GitPatch[];
   changes: GitPatch[];
+  untracked: GitPatch[];
 };
 
 export function shellQuote(value: string) {
@@ -116,15 +126,19 @@ export function createGitActions(
   inspect: (command: string) => Promise<string>,
   run: (command: string, title?: string) => Promise<number | undefined>,
 ) {
-  async function read(script: string, count: number) {
+  async function readEncoded(script: string, count: number) {
     const output = await inspect(`${SETUP}${script}printf 'VIS_GIT_DONE\\n'`);
     const parts = output.split(SEPARATOR);
     if (parts.length !== count + 1 || parts.at(-1) !== 'VIS_GIT_DONE\n')
       throw new Error(`Git inspection failed: ${output.trim()}`);
-    return parts.slice(0, -1).map(decode);
+    return parts.slice(0, -1).map((part) => part.replaceAll(/\s/g, ''));
   }
 
-  async function snapshot(untracked: string[] = []): Promise<GitSnapshot> {
+  async function read(script: string, count: number) {
+    return (await readEncoded(script, count)).map(decode);
+  }
+
+  async function snapshot(includeUntracked = false): Promise<GitSnapshot> {
     const parts = await read(
       section('pwd -P') +
         section('git rev-parse --verify -q HEAD || test "$?" = 1') +
@@ -135,21 +149,73 @@ export function createGitActions(
         diffSections('--cached') +
         diffSections('') +
         `git add -u\n` +
-        (untracked.length ? `git add -- ${untracked.map(shellQuote).join(' ')}\n` : '') +
         diffSections('--cached') +
-        section('git symbolic-ref -q HEAD || test "$?" = 1'),
-      11,
+        section('git symbolic-ref -q HEAD || test "$?" = 1') +
+        `workingTree=$(git write-tree)\n` +
+        section('printf "%s" "$workingTree"') +
+        (includeUntracked ? 'git add -A\n' : '') +
+        section('git write-tree') +
+        diffSections('--cached "$workingTree"'),
+      15,
     );
     return {
       root: parts[0].trimEnd(),
       head: parts[1].trim(),
       branchRef: parts[10].trim(),
       indexTree: parts[2].trim(),
+      workingTree: parts[11].trim(),
+      untrackedTree: parts[12].trim(),
       status: parseStatus(parts[3]),
       staged: parsePatches(parts[4], parts[5]),
       unstaged: parsePatches(parts[6], parts[7]),
       changes: parsePatches(parts[8], parts[9]),
+      untracked: parsePatches(parts[13], parts[14]),
     };
+  }
+
+  const sources = new WeakMap<GitSnapshot, Map<string, Promise<GitSource>>>();
+  function source(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch): Promise<GitSource> {
+    let cache = sources.get(snapshot);
+    if (!cache) {
+      cache = new Map();
+      sources.set(snapshot, cache);
+    }
+    const key = JSON.stringify([mode, file.file]);
+    const existing = cache.get(key);
+    if (existing) return existing;
+    const before =
+      mode === 'untracked' ? '' : mode === 'unstaged' ? snapshot.indexTree : snapshot.head;
+    const after =
+      mode === 'untracked'
+        ? snapshot.untrackedTree
+        : mode === 'staged'
+          ? snapshot.indexTree
+          : snapshot.workingTree;
+    function content(tree: string) {
+      if (!tree) return ':';
+      return `entry=$(git ls-tree --format='%(objectmode) %(objecttype) %(objectname)' ${shellQuote(tree)} -- ${shellQuote(file.file)})
+if test -n "$entry"; then
+  set -- $entry
+  case "$2" in
+    blob) git cat-file blob "$3" ;;
+    commit) printf 'Subproject commit %s\\n' "$3" ;;
+    *) printf 'Unsupported Git object type: %s\\n' "$2" >&2; exit 1 ;;
+  esac
+fi`;
+    }
+    const result = readEncoded(
+      `test "$(pwd -P)" = ${shellQuote(snapshot.root)}\n` +
+        section(content(before)) +
+        section(content(after)),
+      2,
+    ).then(([beforeBase64, afterBase64]) => ({
+      before: file.binary ? '' : decode(beforeBase64),
+      after: file.binary ? '' : decode(afterBase64),
+      beforeBase64,
+      afterBase64,
+    }));
+    cache.set(key, result);
+    return result;
   }
 
   async function untrackedPatch(path: string) {
@@ -236,7 +302,7 @@ git apply --cached --whitespace=nowarn "$d/selection.patch"
     if (code !== 0) throw new Error('Git commit failed. Review the terminal output and refresh.');
   }
 
-  return { snapshot, untrackedPatch, recentMessages, stage, commit };
+  return { snapshot, source, untrackedPatch, recentMessages, stage, commit };
 }
 
 export type GitActions = ReturnType<typeof createGitActions>;
