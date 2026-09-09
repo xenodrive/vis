@@ -1,13 +1,14 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import { createDraftStore, type ComposerDraft } from '../v2/drafts';
 import { StorageKeys, storageKey } from '../utils/storageKeys';
+import { randomUUID } from '../utils/uuid';
 
 export function useComposerDraft(
   sessionID: Ref<string | undefined>,
   report: (error: unknown) => void,
 ) {
   const key = storageKey(StorageKeys.drafts.composer);
-  const writer = crypto.randomUUID();
+  const writer = randomUUID();
   const draft = ref<ComposerDraft>({ messageInput: '' });
   function store() {
     return createDraftStore(window.localStorage, key, writer);

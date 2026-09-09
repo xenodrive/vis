@@ -24,6 +24,7 @@ import type { EventCommand, EventMessage } from '../v2/events';
 import { applyTranscriptEvent, eventSessionID, mergeMessageSnapshot } from '../v2/transcript';
 import type { PendingPrompt } from '../v2/pending-prompts';
 import { updateSessionSettings } from '../v2/session-settings';
+import { randomUUID } from '../utils/uuid';
 
 export function useV2() {
   const status = ref<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected');
@@ -684,7 +685,7 @@ export function useV2() {
     const pending: PendingPrompt | undefined =
       !command && slash?.[1] !== 'compact'
         ? {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             sessionID: id,
             agent: agent ?? selected.value?.agent,
             text,

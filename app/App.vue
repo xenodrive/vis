@@ -319,6 +319,7 @@ import { useAutoScroller } from './composables/useAutoScroller';
 import { presentTranscript } from './v2/presentation';
 import { resolveProjectColorHex } from './utils/stateBuilder';
 import { opencodeTheme, resolveAgentColor, resolveTheme } from './utils/theme';
+import { randomUUID } from './utils/uuid';
 import type { MessageTokens } from './types/message';
 import type { ModelRef } from '@opencode-ai/client';
 
@@ -500,7 +501,7 @@ async function addAttachments(files: File[]) {
           reader.onerror = () => reject(reader.error);
           reader.readAsDataURL(file);
         });
-        return { id: crypto.randomUUID(), filename: file.name, mime: file.type, dataUrl };
+        return { id: randomUUID(), filename: file.name, mime: file.type, dataUrl };
       }),
     );
     if (generation === attachmentGeneration) attachments.value.push(...added);
