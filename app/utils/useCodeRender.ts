@@ -1,5 +1,6 @@
 import { type Ref, type WatchSource, onBeforeUnmount, ref, toRaw, watch } from 'vue';
-import { renderWorkerHtml } from './workerRenderer';
+import { renderWorkerResult } from './workerRenderer';
+import type { RenderedHunk } from './renderResult';
 
 export type CodeRenderParams = {
   code: string;
@@ -16,11 +17,15 @@ export type CodeRenderParams = {
 
 export type CodeRenderResult = {
   html: Ref<string>;
+  hunks: Ref<RenderedHunk[]>;
+  preamble: Ref<string>;
   error: Ref<string>;
 };
 
 export function useCodeRender(params: WatchSource<CodeRenderParams | null>): CodeRenderResult {
   const html = ref('');
+  const hunks = ref<RenderedHunk[]>([]);
+  const preamble = ref('');
   const error = ref('');
   let requestId = 0;
 
@@ -32,12 +37,14 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
 
       if (!p) {
         html.value = '';
+        hunks.value = [];
+        preamble.value = '';
         error.value = '';
         return;
       }
 
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      renderWorkerHtml({
+      renderWorkerResult({
         id,
         code: p.code,
         lang: p.lang,
@@ -52,7 +59,9 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
       })
         .then((result) => {
           if (current !== requestId) return;
-          html.value = result;
+          html.value = result.html;
+          hunks.value = result.hunks ?? [];
+          preamble.value = result.preamble ?? '';
           error.value = '';
         })
         .catch((err) => {
@@ -67,5 +76,5 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
     requestId += 1;
   });
 
-  return { html, error };
+  return { html, hunks, preamble, error };
 }

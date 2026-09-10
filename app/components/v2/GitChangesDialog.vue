@@ -49,6 +49,7 @@ const branch = computed(() => {
 let disposed = false;
 let revision = 0;
 let generation: AbortController | undefined;
+let refreshController: AbortController | undefined;
 
 const committing = computed(() => props.action.startsWith('commit-'));
 const staged = computed(() => props.action === 'commit-staged' || props.action === 'unstage');
@@ -114,15 +115,7 @@ const activeMode = computed(() =>
 const hunks = computed(() =>
   previews.value[activePath.value]?.selectable ? previews.value[activePath.value]!.hunks : [],
 );
-const targetKey = computed(() =>
-  JSON.stringify([
-    snapshot.value?.head,
-    snapshot.value?.indexHash,
-    snapshot.value?.workingHash,
-    snapshot.value?.untrackedHashes,
-    patches.value,
-  ]),
-);
+const targetKey = computed(() => JSON.stringify([snapshot.value?.head, revision, patches.value]));
 const staleMessage = computed(() =>
   Boolean(generatedFor.value && generatedFor.value !== targetKey.value),
 );
@@ -130,8 +123,7 @@ const disabled = computed(() => loading.value || executing.value || needsRefresh
 const statusText = computed(() => {
   if (error.value) return error.value;
   if (executing.value) return 'Applying Git changes…';
-  if (loading.value) return 'Loading changes…';
-  if (previewLoading.value) return 'Loading diff…';
+  if (loading.value || previewLoading.value) return '';
   if (generating.value) return 'Generating commit message…';
   return `${files.value.length} files`;
 });
@@ -189,12 +181,16 @@ function cancelGeneration() {
 
 async function refresh() {
   const request = ++revision;
+  refreshController?.abort();
+  const controller = new AbortController();
+  refreshController = controller;
   previewLoading.value = false;
   cancelGeneration();
   loading.value = true;
   error.value = '';
   try {
-    const result = await props.api.snapshot(true);
+    activePath.value = '';
+    const result = await props.api.snapshot(controller.signal);
     if (disposed || request !== revision) return;
     snapshot.value = result;
     untracked.value = untracked.value.filter((path) =>
@@ -203,9 +199,6 @@ async function refresh() {
     selection.value = Object.create(null);
     previews.value = Object.create(null);
     needsRefresh.value = false;
-    if (!files.value.some((file) => file.path === activePath.value))
-      activePath.value = files.value[0]?.path ?? '';
-    if (activePath.value) void selectFile(activePath.value);
   } catch (cause) {
     if (!disposed && request === revision) {
       needsRefresh.value = true;
@@ -270,10 +263,10 @@ async function generateMessage() {
         : staged.value
           ? 'staged'
           : 'changes';
-      const preview = await props.api.preview(snapshot.value, mode, file);
+      const preview = await props.api.preview(snapshot.value, mode, file, controller.signal);
       if (controller.signal.aborted || disposed) return;
       const content =
-        `\nFile: ${JSON.stringify(file.file)} (${file.change}, +${file.additions} -${file.deletions})\n` +
+        `\nFile: ${JSON.stringify(file.file)} (${file.change})\n` +
         (preview.binary
           ? 'Binary or non-UTF-8 file changed.\n'
           : preview.header + preview.hunks.map(displayHunk).join(''));
@@ -284,7 +277,7 @@ async function generateMessage() {
       remaining = Math.max(0, remaining - characters.length);
     }
     const diff = diffParts.join('');
-    const history = await props.api.recentMessages(snapshot.value);
+    const history = await props.api.recentMessages(snapshot.value, controller.signal);
     if (
       disposed ||
       controller.signal.aborted ||
@@ -324,12 +317,7 @@ async function execute() {
   executing.value = true;
   error.value = '';
   try {
-    const current = await props.api.snapshot(true);
-    if (disposed) return;
-    if (JSON.stringify(current) !== JSON.stringify(snapshot.value)) {
-      needsRefresh.value = true;
-      throw new Error('Git changes have changed since this preview. Refresh before continuing.');
-    }
+    const current = snapshot.value;
     if (committing.value) {
       await props.api.commit(current, !staged.value, untracked.value, message.value.trim());
     } else {
@@ -378,6 +366,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true;
   revision++;
+  refreshController?.abort();
   cancelGeneration();
 });
 </script>
@@ -514,7 +503,6 @@ onBeforeUnmount(() => {
             :selection="selection[activePath]"
             :disabled="disabled"
             @loading="previewLoading = $event"
-            @error="report"
             @toggle-hunk="toggleHunk"
             @preview="(path, preview) => (previews[path] = preview)"
           />
@@ -653,6 +641,7 @@ input:focus-visible {
 }
 .git-files,
 .git-diff {
+  overflow: hidden;
   min-height: 0;
   overflow: auto;
 }

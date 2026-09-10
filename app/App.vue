@@ -406,7 +406,7 @@ watch(
 const { fw } = windows;
 const pty = useV2Pty(state, fw);
 const gitActions = createGitActions(
-  (command) => state.runGitCommand(command),
+  (command, options) => state.runGitCommand(command, 'Git inspection', options),
   async (command, title) => {
     await state.runGitCommand(command, title);
     return 0;

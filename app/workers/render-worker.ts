@@ -4,6 +4,7 @@ import { bundledLanguages, createHighlighter } from 'shiki/bundle/web';
 import { bundledLanguages as allBundledLanguages } from 'shiki/langs';
 import { transformerNotationDiff } from '@shikijs/transformers';
 import { diffSourceFromFullPatch } from '../utils/diffSources';
+import type { RenderResult, RenderedHunk } from '../utils/renderResult';
 
 type RenderRequest = {
   id: string;
@@ -21,7 +22,7 @@ type RenderRequest = {
 };
 
 type RenderResponse =
-  | { id: string; ok: true; html: string }
+  | ({ id: string; ok: true } & RenderResult)
   | { id: string; ok: false; error: string };
 
 type DiffRow = {
@@ -191,7 +192,7 @@ function buildCodeRows(
         const pair = gutterLines?.[index]?.split('\t') ?? [];
         const left = pair[0] ?? String(index + 1);
         const right = pair[1] ?? '';
-        return `<div class="code-row"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span>${line}</div>`;
+        return `<div class="code-row"><span class="code-gutters"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span></span>${line}</div>`;
       }
       const gutter = gutterLines?.[index] ?? String(index + 1);
       return `<div class="code-row file-row"><span class="code-gutter span-2">${escapeHtml(gutter)}</span>${line}</div>`;
@@ -504,7 +505,7 @@ function wrapDiffRows(
       }
       const oldValue = oldValues[index] ?? '';
       const newValue = newValues[index] ?? '';
-      return `<div class="${rowClass.trim()}"><span class="code-gutter">${escapeHtml(oldValue)}</span><span class="code-gutter">${escapeHtml(newValue)}</span>${row.html}</div>`;
+      return `<div class="${rowClass.trim()}"><span class="code-gutters"><span class="code-gutter">${escapeHtml(oldValue)}</span><span class="code-gutter">${escapeHtml(newValue)}</span></span>${row.html}</div>`;
     })
     .join('\n');
 }
@@ -563,7 +564,7 @@ function renderGrepRows(
         const pair = gutterLines?.[index]?.split('\t') ?? [];
         const left = pair[0] ?? '';
         const right = pair[1] ?? '';
-        return `<div class="code-row"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span>${content}</div>`;
+        return `<div class="code-row"><span class="code-gutters"><span class="code-gutter">${escapeHtml(left)}</span><span class="code-gutter">${escapeHtml(right)}</span></span>${content}</div>`;
       }
       const gutter = gutterLines?.[index] ?? String(index + 1);
       return `<div class="code-row"><span class="code-gutter span-2">${escapeHtml(gutter)}</span>${content}</div>`;
@@ -769,8 +770,29 @@ function buildDiffHtmlFromCode(
       newLine += 1;
     });
     const { oldValues, newValues } = buildDiffGutterLines(diff);
-    const rows = wrapDiffRows(output, oldValues, newValues, mode);
-    return buildHtmlFromRows(rows);
+    const hunks: RenderedHunk[] = [];
+    let start = 0;
+    let header = '';
+    const renderRows = (from: number, to: number) =>
+      buildHtmlFromRows(
+        wrapDiffRows(
+          output.slice(from, to),
+          oldValues.slice(from, to),
+          newValues.slice(from, to),
+          mode,
+        ),
+      );
+    let html = '';
+    output.forEach((row, index) => {
+      if (row.rowClass !== 'line-hunk') return;
+      if (header) hunks.push({ index: hunks.length, header, html: renderRows(start, index) });
+      else if (index > 0) html = renderRows(0, index);
+      header = diffLines[index];
+      start = index + 1;
+    });
+    if (header) hunks.push({ index: hunks.length, header, html: renderRows(start, output.length) });
+    else html = renderRows(0, output.length);
+    return { html: renderRows(0, output.length), preamble: html, hunks };
   });
 }
 
@@ -994,17 +1016,19 @@ async function renderMarkdownHtml(request: RenderRequest): Promise<string> {
   return `<div class="markdown-host"><template class="md-raw-source">${escapeHtml(request.code)}</template><button class="md-copy-btn md-copy-btn-host" type="button" aria-label="Copy markdown">COPY</button><div class="md-copied-indicator md-copied-indicator-host" aria-hidden="true">✓ Copied</div>${rendered}</div>`;
 }
 
-function renderRequest(request: RenderRequest): Promise<string> {
+function renderRequest(request: RenderRequest): Promise<string | RenderResult> {
   if (request.patch) {
     if (!request.code && request.after === undefined) {
       const complete = diffSourceFromFullPatch('', request.patch);
       if (complete)
-        return renderRequest({
-          ...request,
-          patch: undefined,
-          code: complete.before,
-          after: complete.after,
-        });
+        return buildDiffHtmlFromCode(
+          complete.before,
+          complete.after,
+          request.patch,
+          request.lang,
+          request.theme,
+          request.gutterMode ?? 'double',
+        );
       const sources = reconstructSourcesFromDiff(request.patch);
       return buildDiffHtmlFromCode(
         sources.before,
@@ -1060,8 +1084,12 @@ function renderRequest(request: RenderRequest): Promise<string> {
 self.onmessage = (event: MessageEvent<RenderRequest>) => {
   const request = event.data;
   renderRequest(request)
-    .then((html) => {
-      const response: RenderResponse = { id: request.id, ok: true, html };
+    .then((result) => {
+      const response: RenderResponse = {
+        id: request.id,
+        ok: true,
+        ...(typeof result === 'string' ? { html: result } : result),
+      };
       self.postMessage(response);
     })
     .catch((error) => {

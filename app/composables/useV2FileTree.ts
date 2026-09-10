@@ -100,9 +100,10 @@ export function useV2FileTree(
     const current = generation;
     const request = ++gitRevision;
     try {
-      const [result, snapshot] = await Promise.all([
+      const [result, snapshot, counts] = await Promise.all([
         state.readVcs(location, controller.signal),
         git.snapshot(),
+        git.statistics(),
       ]);
       if (current !== generation || request !== gitRevision) return;
       gitError.value = '';
@@ -128,8 +129,8 @@ export function useV2FileTree(
       const isUntracked = (file: { file: string }) => snapshot.status[file.file]?.index === '?';
       const tracked = result.status.filter((file) => !isUntracked(file));
       diffStats.value = {
-        staged: stats(snapshot.staged),
-        unstaged: stats(snapshot.unstaged),
+        staged: stats(counts.staged),
+        unstaged: stats(counts.unstaged),
         changes: {
           additions: tracked.reduce((sum, file) => sum + file.additions, 0),
           deletions: tracked.reduce((sum, file) => sum + file.deletions, 0),
@@ -152,7 +153,7 @@ export function useV2FileTree(
     if (!location) return;
     const current = generation;
     try {
-      const snapshot = await git.snapshot(!staged);
+      const snapshot = await git.snapshot();
       const changes = staged ? snapshot.staged : [...snapshot.changes, ...snapshot.untracked];
       if (current !== generation) return;
       const prefix =

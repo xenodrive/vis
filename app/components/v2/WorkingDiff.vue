@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import GitDiffFile from './GitDiffFile.vue';
+import { Icon } from '@iconify/vue';
 import type { GitActions, GitSnapshot, GitDiffMode, GitPatch } from '../../v2/git';
 const props = defineProps<{
   files: GitPatch[];
@@ -11,14 +12,10 @@ const props = defineProps<{
 const index = ref(0);
 const active = computed(() => props.files[index.value]);
 const loading = ref(false);
-const error = ref('');
 function mode(file: GitPatch): GitDiffMode {
   return props.snapshot.untracked.some((entry) => entry.file === file.file)
     ? 'untracked'
     : props.mode;
-}
-function report(cause: unknown) {
-  error.value = cause instanceof Error ? cause.message : JSON.stringify(cause);
 }
 </script>
 
@@ -31,7 +28,7 @@ function report(cause: unknown) {
         :class="{ active: i === index }"
         @click="index = i"
       >
-        {{ file.file }} <span>+{{ file.additions }} −{{ file.deletions }}</span>
+        {{ file.file }}
       </button>
     </div>
     <div class="diff-body">
@@ -44,11 +41,10 @@ function report(cause: unknown) {
           :snapshot="snapshot"
           :mode="mode(active)"
           @loading="loading = $event"
-          @error="report"
       /></KeepAlive>
     </div>
-    <div class="diff-status" role="status" :title="error">
-      {{ error || (loading ? 'Loading diff…' : '') }}
+    <div class="diff-status" role="status">
+      <Icon v-if="loading" icon="mdi:loading" class="diff-spinner" aria-label="Loading diff" />
     </div>
   </div>
 </template>
@@ -69,7 +65,15 @@ function report(cause: unknown) {
 .diff-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+.diff-spinner {
+  animation: diff-spin 1s linear infinite;
+}
+@keyframes diff-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .diff-status {
   flex: 0 0 24px;

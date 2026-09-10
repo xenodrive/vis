@@ -29,6 +29,8 @@ const rootClass = computed(() => {
   line-height: inherit;
   color: inherit;
   min-height: 1.2em;
+  min-width: 100%;
+  width: max-content;
 }
 
 .code-content :deep(pre),
@@ -53,7 +55,9 @@ const rootClass = computed(() => {
 
 .code-content :deep(code) {
   display: grid;
-  grid-template-columns: max-content max-content 1fr;
+  grid-template-columns:
+    var(--code-gutter-width, max-content) var(--code-gutter-width, max-content)
+    1fr;
   column-gap: 0;
 }
 
@@ -75,6 +79,23 @@ const rootClass = computed(() => {
 
 .code-content :deep(.code-gutter.span-2) {
   grid-column: 1 / 3;
+}
+
+.code-content :deep(.code-gutters) {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / 3;
+}
+.code-content :deep(.code-gutters),
+.code-content :deep(.code-gutter.span-2) {
+  position: sticky;
+  align-self: stretch;
+  left: 0;
+  z-index: 1;
+  background: var(--code-gutter-background, #161b22);
+}
+.code-content.wrap-soft {
+  width: auto;
 }
 
 .code-content :deep(.line) {

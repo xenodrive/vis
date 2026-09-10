@@ -1,13 +1,16 @@
 <template>
   <div class="code-renderer-content">
     <div ref="viewerBodyEl" class="viewer-body">
-      <div v-if="showLoading" class="viewer-loading">Loading...</div>
+      <div v-if="showLoading" class="viewer-loading" role="status" aria-label="Loading code">
+        <Icon icon="mdi:loading" />
+      </div>
       <CodeContent v-else :html="renderedHtml || rawHtml || ''" :variant="viewerVariant" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { Icon } from '@iconify/vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import CodeContent from '../CodeContent.vue';
 import { type CodeRenderParams, useCodeRender } from '../../utils/useCodeRender';
@@ -124,6 +127,7 @@ const showLoading = computed(() => {
 }
 
 .viewer-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -134,6 +138,8 @@ const showLoading = computed(() => {
 }
 
 .viewer-loading {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -141,5 +147,13 @@ const showLoading = computed(() => {
   color: #64748b;
   font-size: 13px;
   user-select: none;
+}
+.viewer-loading svg {
+  animation: code-spin 1s linear infinite;
+}
+@keyframes code-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

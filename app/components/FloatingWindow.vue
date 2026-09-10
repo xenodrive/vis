@@ -527,7 +527,9 @@ function onResizeEnd(e: PointerEvent) {
   display: flex;
   flex-direction: column;
   max-width: 100vw;
-  background: color-mix(in srgb, var(--window-color, #3a4150) 12%, #1a1d24);
+  --window-background: color-mix(in srgb, var(--window-color, #3a4150) 12%, #1a1d24);
+  --code-gutter-background: color-mix(in srgb, var(--window-background) 92%, black);
+  background: var(--window-background);
   border: 1px solid var(--window-color, #3a4150);
   border-radius: 5px;
   font-family: var(--term-font-family, monospace);

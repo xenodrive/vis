@@ -1,5 +1,5 @@
 <template>
-  <div class="diff-renderer-content">
+  <div class="diff-renderer-content" :style="{ '--code-gutter-width': gutterWidth }">
     <div v-if="hasTabs" class="viewer-tabs">
       <button
         v-for="(tab, i) in diffTabs"
@@ -13,7 +13,21 @@
       </button>
     </div>
     <div class="viewer-body">
-      <div v-if="showLoading" class="viewer-loading">Loading...</div>
+      <div v-if="showLoading" class="viewer-loading" role="status" aria-label="Loading diff">
+        <Icon icon="mdi:loading" />
+      </div>
+      <div v-else-if="hunks.length" class="diff-document">
+        <CodeContent v-if="preamble" :html="preamble" variant="diff" />
+        <section v-for="hunk in hunks" :key="hunk.index">
+          <div class="hunk-header">
+            <div class="hunk-controls">
+              <slot name="hunk-header" :index="hunk.index" :header="hunk.header" />
+            </div>
+            <span class="hunk-title">{{ hunk.header }}</span>
+          </div>
+          <CodeContent :html="hunk.html" variant="diff" />
+        </section>
+      </div>
       <CodeContent v-else :html="renderedHtml || ''" variant="diff" />
     </div>
   </div>
@@ -22,6 +36,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue';
 import CodeContent from '../CodeContent.vue';
+import { Icon } from '@iconify/vue';
 import { type CodeRenderParams, useCodeRender } from '../../utils/useCodeRender';
 import { guessLanguageFromPath } from '../ToolWindow/utils';
 
@@ -79,7 +94,20 @@ const renderParams = computed<CodeRenderParams | null>(() => {
   };
 });
 
-const { html: renderedHtml } = useCodeRender(renderParams);
+const { html: renderedHtml, hunks, preamble } = useCodeRender(renderParams);
+const gutterWidth = computed(() => {
+  let maximum = 1;
+  for (const hunk of hunks.value) {
+    const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(hunk.header);
+    if (!match) continue;
+    maximum = Math.max(
+      maximum,
+      Number(match[1]) + Number(match[2] ?? 1),
+      Number(match[3]) + Number(match[4] ?? 1),
+    );
+  }
+  return `${String(maximum).length + 2}ch`;
+});
 
 watch(
   [() => renderedHtml.value, () => activeTabIndex.value],
@@ -100,6 +128,28 @@ function basename(filepath: string) {
 </script>
 
 <style scoped>
+.hunk-header {
+  display: grid;
+  grid-template-columns: calc(2 * var(--code-gutter-width)) 1fr;
+  box-sizing: border-box;
+  background: #1e293b;
+  color: #94a3b8;
+  font-family: var(--term-font-family);
+  font-size: var(--term-font-size);
+  white-space: pre;
+}
+.hunk-controls {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--code-gutter-background, #161b22);
+}
+.hunk-title {
+  padding: 8px 0 8px 1ch;
+}
 .diff-renderer-content {
   display: flex;
   flex-direction: column;
@@ -146,12 +196,27 @@ function basename(filepath: string) {
 }
 
 .viewer-body {
+  container-type: inline-size;
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
 }
+.diff-document {
+  display: grid;
+  min-width: 100%;
+  width: max-content;
+}
+.diff-document > section {
+  min-width: 0;
+}
+.diff-document :deep(.code-content) {
+  width: auto;
+}
 
 .viewer-loading {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -159,5 +224,13 @@ function basename(filepath: string) {
   color: #64748b;
   font-size: 13px;
   user-select: none;
+}
+.viewer-loading svg {
+  animation: diff-spin 1s linear infinite;
+}
+@keyframes diff-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

@@ -36,9 +36,6 @@ export type GitSnapshot = {
   root: string;
   head: string;
   branchRef: string;
-  indexHash: string;
-  workingHash: string;
-  untrackedHashes: string[];
   status: Record<string, GitFileStatus>;
   staged: GitPatch[];
   unstaged: GitPatch[];
@@ -76,13 +73,6 @@ printf '%s' "$encoded"
 printf '\\nVIS_GIT_SECTION\\n'
 `;
 }
-
-function fingerprint(command: string) {
-  return `capture ${shellQuote(command)}\nprintf '%s' "$encoded" | git hash-object --stdin`;
-}
-
-const INDEX_HASH = fingerprint('git ls-files --stage -z');
-const WORK_HASH = fingerprint(`${DIFF} --binary --full-index --no-abbrev`);
 
 function diffSections(args: string) {
   return section(`${DIFF} --raw --numstat ${args}`);
@@ -157,7 +147,7 @@ function setPath(file: GitPatch) {
   return `path=$(printf '%s' ${shellQuote(file.pathBase64)} | base64 -d; printf '.')\npath=\${path%.}\n`;
 }
 
-function filePatch(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch) {
+function filePatch(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch, statistics = false) {
   const base = snapshot.head
     ? shellQuote(snapshot.head)
     : '"$(git hash-object -t tree --stdin < /dev/null)"';
@@ -171,118 +161,89 @@ function filePatch(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch) {
           : '';
   return (
     setPath(file) +
-    `${DIFF} --binary --full-index --unified=3 --inter-hunk-context=0 ${args} -- ${mode === 'untracked' ? '/dev/null ' : ''}"$path"${mode === 'untracked' ? ' || test "$?" = 1' : ''}\n`
+    `${DIFF} ${statistics ? '--numstat' : '--binary --full-index --unified=3 --inter-hunk-context=0'} ${args} -- ${mode === 'untracked' ? '/dev/null ' : ''}"$path"${mode === 'untracked' ? ' || test "$?" = 1' : ''}\n`
   );
 }
 
 export function createGitActions(
-  inspect: (command: string) => Promise<string>,
+  inspect: (
+    command: string,
+    options?: { signal?: AbortSignal; timeout?: number },
+  ) => Promise<string>,
   run: (command: string, title?: string) => Promise<number | undefined>,
 ) {
-  async function readEncoded(script: string, count: number) {
-    const output = await inspect(`${SETUP}${script}printf 'VIS_GIT_DONE\\n'`);
+  async function readEncoded(
+    script: string,
+    count: number,
+    options?: { signal?: AbortSignal; timeout?: number },
+  ) {
+    const output = await inspect(`${SETUP}${script}printf 'VIS_GIT_DONE\\n'`, options);
     const parts = output.split(SEPARATOR);
     if (parts.length !== count + 1 || parts.at(-1) !== 'VIS_GIT_DONE\n')
       throw new Error(`Git inspection failed: ${output.trim()}`);
     return parts.slice(0, -1).map((part) => part.replaceAll(/\s/g, ''));
   }
 
-  async function read(script: string, count: number) {
-    return (await readEncoded(script, count)).map(decode);
+  async function read(
+    script: string,
+    count: number,
+    options?: { signal?: AbortSignal; timeout?: number },
+  ) {
+    return (await readEncoded(script, count, options)).map(decode);
   }
 
-  async function snapshot(includeUntracked = false): Promise<GitSnapshot> {
+  async function snapshot(signal?: AbortSignal): Promise<GitSnapshot> {
     const parts = await read(
       section('pwd -P') +
         section('git rev-parse --verify -q HEAD || test "$?" = 1') +
-        section(INDEX_HASH) +
         section(
           'git -c core.quotePath=true status --porcelain=v1 --no-renames --untracked-files=all',
         ) +
-        diffSections('--cached') +
-        diffSections('') +
-        `base=$(git rev-parse --verify -q HEAD || test "$?" = 1)\nif test -z "$base"; then base=$(git hash-object -t tree --stdin < /dev/null); fi\n` +
-        diffSections('"$base"') +
-        section('git symbolic-ref -q HEAD || test "$?" = 1') +
-        section(WORK_HASH),
-      9,
+        section('git symbolic-ref -q HEAD || test "$?" = 1'),
+      4,
+      { signal },
     );
     const result: GitSnapshot = {
       root: parts[0].trimEnd(),
       head: parts[1].trim(),
-      branchRef: parts[7].trim(),
-      indexHash: parts[2].trim(),
-      workingHash: parts[8].trim(),
-      untrackedHashes: [],
-      status: parseStatus(parts[3]),
-      staged: parsePatches(parts[4]),
-      unstaged: parsePatches(parts[5]),
-      changes: parsePatches(parts[6]),
+      branchRef: parts[3].trim(),
+      status: parseStatus(parts[2]),
+      staged: [],
+      unstaged: [],
+      changes: [],
       untracked: [],
     };
-    if (includeUntracked) {
-      const names = parts[3]
-        .split('\n')
-        .filter((line) => line.startsWith('?? '))
-        .map((line) => gitPath(line.slice(3)));
-      if (names.length) {
-        const data = await read(
-          names
-            .map((name) => {
-              const file: GitPatch = {
-                ...name,
-                change: 'A',
-                additions: 0,
-                deletions: 0,
-                binary: false,
-              };
-              return (
-                section(
-                  setPath(file) +
-                    `${DIFF} --no-index --numstat -- /dev/null "$path" || test "$?" = 1`,
-                ) + section(fingerprint(filePatch(result, 'untracked', file)))
-              );
-            })
-            .join(''),
-          names.length * 2,
-        );
-        result.untracked = names.map((name, index) => {
-          const match = /^(\d+|-)\t(\d+|-)\t/.exec(data[index * 2]);
-          if (!match) throw new Error('Invalid untracked file statistics.');
-          return {
-            ...name,
-            change: 'A',
-            additions: match[1] === '-' ? 0 : Number(match[1]),
-            deletions: 0,
-            binary: match[1] === '-',
-          };
-        });
-        result.untrackedHashes = data
-          .filter((_, index) => index % 2 === 1)
-          .map((hash) => hash.trim());
+    for (const line of parts[2].split('\n').filter(Boolean)) {
+      const file: GitPatch = {
+        ...gitPath(line.slice(3)),
+        change: '',
+        additions: 0,
+        deletions: 0,
+        binary: false,
+      };
+      const index = line[0].trim();
+      const working = line[1].trim();
+      if (index === '?') result.untracked.push({ ...file, change: 'A' });
+      else {
+        if (index) result.staged.push({ ...file, change: index });
+        if (working) result.unstaged.push({ ...file, change: working });
+        result.changes.push({ ...file, change: working || index });
       }
     }
     return result;
   }
 
-  const previews = new WeakMap<GitSnapshot, Map<string, Promise<GitPreview>>>();
-  const sources = new WeakMap<GitSnapshot, Map<string, Promise<GitSource>>>();
-  function cacheFor<T>(
-    cache: WeakMap<GitSnapshot, Map<string, Promise<T>>>,
-    snapshot: GitSnapshot,
-  ) {
-    let entries = cache.get(snapshot);
-    if (!entries) {
-      entries = new Map();
-      cache.set(snapshot, entries);
-    }
-    return entries;
+  async function statistics() {
+    const parts = await read(diffSections('--cached') + diffSections(''), 2);
+    return { staged: parsePatches(parts[0]), unstaged: parsePatches(parts[1]) };
   }
+
   async function inspectFile(
     snapshot: GitSnapshot,
     mode: GitDiffMode,
     file: GitPatch,
     includeSource: boolean,
+    signal?: AbortSignal,
   ): Promise<GitSource> {
     function content(kind: 'head' | 'index' | 'working' | 'empty') {
       if (kind === 'empty' || (kind === 'head' && !snapshot.head)) return ':';
@@ -306,13 +267,28 @@ fi`;
     }
     const parts = await readEncoded(
       guard(snapshot) +
-        verifyWorktree(snapshot) +
         `command -v iconv > /dev/null\n` +
         setPath(file) +
-        `capture ${shellQuote(content(mode === 'untracked' ? 'empty' : mode === 'unstaged' ? 'index' : 'head'))}\nbefore64=$encoded\n` +
-        `capture ${shellQuote(content(mode === 'staged' ? 'index' : 'working'))}\nafter64=$encoded\n` +
-        `capture ${shellQuote(filePatch(snapshot, mode, file))}\npatch64=$encoded\n` +
-        `binary=${file.binary ? 'true' : 'false'}
+        `capture ${shellQuote(filePatch(snapshot, mode, file, true))}\n` +
+        `stats=$(printf '%s' "$encoded" | base64 -d)
+binary=false
+case "$stats" in -*) binary=true ;; esac
+patch64=''
+if test "$binary" = false; then
+capture ${shellQuote(filePatch(snapshot, mode, file))}
+patch64=$encoded
+fi
+` +
+        `capture ${shellQuote(includeSource ? content(mode === 'untracked' ? 'empty' : mode === 'unstaged' ? 'index' : 'head') : ':')}\nbefore64=$encoded\n` +
+        `capture ${shellQuote(includeSource ? content(mode === 'staged' ? 'index' : 'working') : ':')}\nafter64=$encoded\n` +
+        (includeSource
+          ? `if test "$binary" = false; then
+capture ${shellQuote(filePatch(snapshot, mode, file))}
+test "$encoded" = "$patch64"
+fi
+`
+          : '') +
+        `
 for source64 in "$before64" "$after64" "$patch64"; do
   if ! printf '%s' "$source64" | base64 -d | iconv -f UTF-8 -t UTF-8 > /dev/null 2>&1; then binary=true; fi
 done
@@ -332,9 +308,9 @@ done
             ? 'if test "$binary" = false; then printf "%s" "$after64" | base64 -d; fi'
             : ':',
         ) +
-        guard(snapshot) +
-        verifyWorktree(snapshot),
+        guard(snapshot),
       5,
+      { signal, timeout: 5000 },
     );
     const preview = JSON.parse(decode(parts[0])) as GitPreview;
     preview.binary = decode(parts[1]) === 'true';
@@ -352,39 +328,27 @@ done
     };
   }
 
-  function preview(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch) {
-    const cache = cacheFor(previews, snapshot);
-    const key = JSON.stringify([mode, file.pathBase64]);
-    const existing = cache.get(key);
-    if (existing) return existing;
-    const sourceRequest = sources.get(snapshot)?.get(key);
-    const request = (sourceRequest ?? inspectFile(snapshot, mode, file, false)).then(
-      (result) => result.preview,
-    );
-    cache.set(key, request);
-    return request;
+  function preview(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch, signal?: AbortSignal) {
+    return inspectFile(snapshot, mode, file, false, signal).then((result) => result.preview);
   }
 
-  function source(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch): Promise<GitSource> {
-    const cache = cacheFor(sources, snapshot);
-    const key = JSON.stringify([mode, file.pathBase64]);
-    const existing = cache.get(key);
-    if (existing) return existing;
-    const result = inspectFile(snapshot, mode, file, true).then((value) => {
-      cacheFor(previews, snapshot).set(key, Promise.resolve(value.preview));
-      return value;
-    });
-    cache.set(key, result);
-    return result;
+  function source(
+    snapshot: GitSnapshot,
+    mode: GitDiffMode,
+    file: GitPatch,
+    signal?: AbortSignal,
+  ): Promise<GitSource> {
+    return inspectFile(snapshot, mode, file, true, signal);
   }
 
-  async function recentMessages(snapshot: GitSnapshot) {
+  async function recentMessages(snapshot: GitSnapshot, signal?: AbortSignal) {
     // An unborn branch has no commit history.
     if (!snapshot.head) return [];
     const [log] = await read(
       section(`test "$(pwd -P)" = ${shellQuote(snapshot.root)}
 git --no-pager log -10 --date-order --no-merges --no-show-signature --encoding=UTF-8 --format=format:%B%x00 ${shellQuote(snapshot.head)} --`),
       1,
+      { signal, timeout: 5000 },
     );
     const messages: { message: string; truncated: boolean }[] = [];
     let remaining = 12000;
@@ -405,21 +369,7 @@ git --no-pager log -10 --date-order --no-merges --no-show-signature --encoding=U
     return `test "$(pwd -P)" = ${shellQuote(snapshot.root)}
 test "$(git rev-parse --verify -q HEAD || test "$?" = 1)" = ${shellQuote(snapshot.head)}
 test "$(git symbolic-ref -q HEAD || test "$?" = 1)" = ${shellQuote(snapshot.branchRef)}
-test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
 `;
-  }
-
-  function verifyWorktree(snapshot: GitSnapshot) {
-    const hashes = snapshot.untrackedHashes;
-    return (
-      `test "$(${WORK_HASH})" = ${shellQuote(snapshot.workingHash)}\n` +
-      snapshot.untracked
-        .map(
-          (file, index) =>
-            `test "$(${fingerprint(filePatch(snapshot, 'untracked', file))})" = ${shellQuote(hashes[index])}\n`,
-        )
-        .join('')
-    );
   }
 
   function fileArguments(snapshot: GitSnapshot, paths: string[]) {
@@ -446,26 +396,11 @@ test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
     files: string[],
     patches: GitHunkSelection[],
   ) {
-    // Assemble the complete selected patch in memory and apply it in one Git operation.
+    // Validate and assemble selected hunks before applying them to the index.
     const script =
       SETUP +
       guard(snapshot) +
-      verifyWorktree(snapshot) +
       `batch=''\n` +
-      files
-        .map((path) => {
-          const file = (
-            reverse ? snapshot.staged : [...snapshot.unstaged, ...snapshot.untracked]
-          ).find((file) => file.file === path);
-          if (!file) throw new Error('Selected file is no longer available.');
-          const mode = reverse
-            ? 'staged'
-            : snapshot.untracked.includes(file)
-              ? 'untracked'
-              : 'unstaged';
-          return `capture ${shellQuote(filePatch(snapshot, mode, file))}\nbatch=$batch$(printf '%s' "$encoded" | base64 -d; printf '.')\nbatch=\${batch%.}\n`;
-        })
-        .join('') +
       patches
         .map((selection) => {
           if (
@@ -484,8 +419,17 @@ test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
         })
         .join('') +
       guard(snapshot) +
-      verifyWorktree(snapshot) +
-      `printf '%s' "$batch" | git apply --cached ${reverse ? '--reverse' : ''} --whitespace=nowarn\n`;
+      (patches.length
+        ? `printf '%s' "$batch" | git apply --cached ${reverse ? '--reverse' : ''} --whitespace=nowarn\n`
+        : '') +
+      fileArguments(snapshot, files) +
+      (files.length
+        ? reverse
+          ? snapshot.head
+            ? 'git restore --staged -- "$@"\n'
+            : 'git rm --cached -f -- "$@"\n'
+          : 'git add -- "$@"\n'
+        : '');
     const code = await run(script, reverse ? 'Unstage selected changes' : 'Stage selected changes');
     if (code !== 0) throw new Error('Git staging failed. Refresh before continuing.');
   }
@@ -494,7 +438,6 @@ test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
     const script =
       SETUP +
       guard(snapshot) +
-      verifyWorktree(snapshot) +
       fileArguments(snapshot, untracked) +
       (untracked.length ? `git add -- "$@"\n` : '') +
       `printf '%s' ${shellQuote(message)} | git commit ${all ? '-a ' : ''}-F -\n`;
@@ -502,7 +445,7 @@ test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
     if (code !== 0) throw new Error('Git commit failed. Refresh before continuing.');
   }
 
-  return { snapshot, source, preview, recentMessages, stage, commit };
+  return { snapshot, statistics, source, preview, recentMessages, stage, commit };
 }
 
 export type GitActions = ReturnType<typeof createGitActions>;

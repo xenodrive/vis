@@ -963,18 +963,31 @@ export function useV2() {
 
   return {
     idleNotifications,
-    async runGitCommand(command: string, title = 'Git inspection') {
+    async runGitCommand(
+      command: string,
+      title = 'Git inspection',
+      request?: { signal?: AbortSignal; timeout?: number },
+    ) {
       const shell = api().shell;
       const scope = location();
-      const signal = abort.signal;
+      const script = `/bin/sh -c '${command.replaceAll("'", "'\\''")}'`;
+      // Shell API passes the entire command as one exec argument.
+      if (new TextEncoder().encode(script).length > 60000)
+        throw new Error('Git command exceeds the shell argument limit. Select fewer files.');
+      const timeout = request?.timeout ?? 120000;
+      const signal = AbortSignal.any([
+        abort.signal,
+        AbortSignal.timeout(timeout),
+        ...(request?.signal ? [request.signal] : []),
+      ]);
       const started = await shell.create(
         {
           location: scope,
-          command: `/bin/sh -c '${command.replaceAll("'", "'\\''")}'`,
-          timeout: 120000,
+          command: script,
+          timeout,
           metadata: { source: 'vis-git', title },
         },
-        { signal },
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) },
       );
       const id = started.data.id;
       try {

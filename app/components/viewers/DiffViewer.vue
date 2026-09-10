@@ -37,7 +37,11 @@
         :lang="lang"
         :theme="theme"
         @rendered="emit('rendered')"
-      />
+      >
+        <template v-if="$slots['hunk-header']" #hunk-header="scope">
+          <slot name="hunk-header" v-bind="scope" />
+        </template>
+      </DiffRenderer>
       <ContentViewer
         v-else
         :path="activeFilePath"
