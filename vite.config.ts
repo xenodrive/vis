@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 const gitRevision = execSync('git rev-parse --short HEAD').toString().trim();
 
 export default defineConfig({
-  base: './',
+  base: '/vis/',
   root: 'app',
   plugins: [vue()],
   worker: {

@@ -440,8 +440,12 @@ function buildDiffGutterLines(source: string) {
       newValues.push('');
       return;
     }
-    if (isDiffMetadataLine(line) || line.startsWith('\\')) {
-      inHunk = false;
+    if (
+      (!inHunk && isDiffMetadataLine(line)) ||
+      line.startsWith('diff --git ') ||
+      line.startsWith('\\')
+    ) {
+      if (!line.startsWith('\\')) inHunk = false;
       oldValues.push('');
       newValues.push('');
       return;
@@ -451,13 +455,13 @@ function buildDiffGutterLines(source: string) {
       newValues.push('');
       return;
     }
-    if (line.startsWith('+') && !line.startsWith('+++')) {
+    if (line.startsWith('+')) {
       oldValues.push('');
       newValues.push(String(newLine));
       newLine += 1;
       return;
     }
-    if (line.startsWith('-') && !line.startsWith('---')) {
+    if (line.startsWith('-')) {
       oldValues.push(String(oldLine));
       newValues.push('');
       oldLine += 1;
@@ -583,15 +587,19 @@ function diffMaxLines(diff: string): { maxOld: number; maxNew: number } {
       inHunk = true;
       continue;
     }
-    if (isDiffMetadataLine(line) || line.startsWith('\\')) {
-      inHunk = false;
+    if (
+      (!inHunk && isDiffMetadataLine(line)) ||
+      line.startsWith('diff --git ') ||
+      line.startsWith('\\')
+    ) {
+      if (!line.startsWith('\\')) inHunk = false;
       continue;
     }
     if (!inHunk) continue;
-    if (line.startsWith('+') && !line.startsWith('+++')) {
+    if (line.startsWith('+')) {
       maxNew = Math.max(maxNew, newLine);
       newLine += 1;
-    } else if (line.startsWith('-') && !line.startsWith('---')) {
+    } else if (line.startsWith('-')) {
       maxOld = Math.max(maxOld, oldLine);
       oldLine += 1;
     } else if (line.startsWith(' ')) {
@@ -653,6 +661,22 @@ function reconstructSourcesFromDiff(diff: string): { before: string; after: stri
   return { before: buildPadded(beforeLines), after: buildPadded(afterLines) };
 }
 
+function limitHighlightedLine(html: string, limit: number) {
+  let remaining = limit;
+  return html.replace(/<[^>]*>|&(?:#\d+|#x[\da-fA-F]+|\w+);|[^<&]+|[<&]/g, (part) => {
+    if (part.startsWith('<') && part.endsWith('>')) return part;
+    if (!remaining) return '';
+    if (part.startsWith('&') && part.endsWith(';')) {
+      remaining--;
+      return part;
+    }
+    const characters = Array.from(part);
+    const result = characters.slice(0, remaining).join('');
+    remaining = Math.max(0, remaining - characters.length);
+    return result;
+  });
+}
+
 function buildDiffHtmlFromCode(
   before: string,
   after: string,
@@ -691,8 +715,12 @@ function buildDiffHtmlFromCode(
         });
         return;
       }
-      if (isDiffMetadataLine(line) || line.startsWith('\\')) {
-        inHunk = false;
+      if (
+        (!inHunk && isDiffMetadataLine(line)) ||
+        line.startsWith('diff --git ') ||
+        line.startsWith('\\')
+      ) {
+        if (!line.startsWith('\\')) inHunk = false;
         output.push({
           html: `<span class="line">${escapeHtml(line)}</span>`,
           rowClass: 'line-header',
@@ -706,17 +734,23 @@ function buildDiffHtmlFromCode(
         });
         return;
       }
-      if (line.startsWith('+') && !line.startsWith('+++')) {
+      if (line.startsWith('+')) {
         const htmlLine =
           afterLines[newLine - 1] ?? `<span class="line">${escapeHtml(line.slice(1))}</span>`;
-        output.push({ html: htmlLine, rowClass: 'line-added' });
+        output.push({
+          html: limitHighlightedLine(htmlLine, Array.from(line.slice(1)).length),
+          rowClass: 'line-added',
+        });
         newLine += 1;
         return;
       }
-      if (line.startsWith('-') && !line.startsWith('---')) {
+      if (line.startsWith('-')) {
         const htmlLine =
           beforeLines[oldLine - 1] ?? `<span class="line">${escapeHtml(line.slice(1))}</span>`;
-        output.push({ html: htmlLine, rowClass: 'line-removed' });
+        output.push({
+          html: limitHighlightedLine(htmlLine, Array.from(line.slice(1)).length),
+          rowClass: 'line-removed',
+        });
         oldLine += 1;
         return;
       }
@@ -730,7 +764,7 @@ function buildDiffHtmlFromCode(
       const htmlLine =
         beforeLines[oldLine - 1] ??
         `<span class="line">${escapeHtml(line.replace(/^ /, ''))}</span>`;
-      output.push({ html: htmlLine });
+      output.push({ html: limitHighlightedLine(htmlLine, Array.from(line.slice(1)).length) });
       oldLine += 1;
       newLine += 1;
     });

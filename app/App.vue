@@ -417,7 +417,13 @@ watch(
 );
 const { fw } = windows;
 const pty = useV2Pty(state, fw);
-const gitActions = createGitActions(pty.inspect, pty.run);
+const gitActions = createGitActions(
+  (command) => state.runGitCommand(command),
+  async (command, title) => {
+    await state.runGitCommand(command, title);
+    return 0;
+  },
+);
 const fileTree = useV2FileTree(state, fw, gitActions);
 const gitAction = ref<GitAction>();
 const { commitModel } = useSettings();
@@ -445,7 +451,7 @@ watch(
   },
   { flush: 'sync' },
 );
-const gitControls = useV2GitControls(state, pty, fileTree.reload);
+const gitControls = useV2GitControls(state, fileTree.reload);
 watch(fileTree.branch, (branch) => {
   if (branch) void gitControls.reload();
 });

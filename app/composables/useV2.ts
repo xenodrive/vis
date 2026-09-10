@@ -963,6 +963,56 @@ export function useV2() {
 
   return {
     idleNotifications,
+    async runGitCommand(command: string, title = 'Git inspection') {
+      const shell = api().shell;
+      const scope = location();
+      const signal = abort.signal;
+      const started = await shell.create(
+        {
+          location: scope,
+          command: `/bin/sh -c '${command.replaceAll("'", "'\\''")}'`,
+          timeout: 120000,
+          metadata: { source: 'vis-git', title },
+        },
+        { signal },
+      );
+      const id = started.data.id;
+      try {
+        let info = started.data;
+        while (info.status === 'running') {
+          await new Promise<void>((resolve, reject) => {
+            signal.throwIfAborted();
+            const cancel = () => {
+              clearTimeout(timer);
+              reject(signal.reason);
+            };
+            const timer = setTimeout(() => {
+              signal.removeEventListener('abort', cancel);
+              resolve();
+            }, 200);
+            signal.addEventListener('abort', cancel, { once: true });
+          });
+          info = (await shell.get({ id, location: scope }, { signal })).data;
+        }
+        let output = '';
+        let cursor = 0;
+        for (;;) {
+          const page = (
+            await shell.output({ id, location: scope, cursor, limit: 65536 }, { signal })
+          ).data;
+          if (page.truncated) throw new Error('Git command output was truncated.');
+          output += page.output;
+          if (page.cursor >= page.size) break;
+          if (page.cursor <= cursor) throw new Error('Git command output cursor did not advance.');
+          cursor = page.cursor;
+        }
+        if (info.status !== 'exited' || info.exit !== 0)
+          throw new Error(`${title} failed (${info.status}, exit ${info.exit}):\n${output}`);
+        return output;
+      } finally {
+        await shell.remove({ id, location: scope }, { signal: AbortSignal.timeout(10000) });
+      }
+    },
     async generateCommitMessage(prompt: string, signal: AbortSignal, model: ModelRef) {
       const response = await api().generate.text(
         { prompt, model },

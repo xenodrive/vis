@@ -1,7 +1,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { useV2 } from './useV2';
 import type { useFloatingWindows } from './useFloatingWindows';
-import type { TreeNode, GitFileStatus, GitBranchInfo, GitDiffStats } from './useFileTree';
+import type { TreeNode, GitFileStatus, GitBranchInfo } from './useFileTree';
+import type { GitDiffStats } from '../components/TreeView.vue';
 import WorkingDiff from '../components/v2/WorkingDiff.vue';
 import ContentViewer from '../components/viewers/ContentViewer.vue';
 import { guessLanguageFromPath } from '../components/ToolWindow/utils';
@@ -124,12 +125,17 @@ export function useV2FileTree(
         additions: files.reduce((sum, file) => sum + file.additions, 0),
         deletions: files.reduce((sum, file) => sum + file.deletions, 0),
       });
+      const isUntracked = (file: { file: string }) => snapshot.status[file.file]?.index === '?';
+      const tracked = result.status.filter((file) => !isUntracked(file));
       diffStats.value = {
         staged: stats(snapshot.staged),
         unstaged: stats(snapshot.unstaged),
         changes: {
-          additions: result.status.reduce((sum, file) => sum + file.additions, 0),
-          deletions: result.status.reduce((sum, file) => sum + file.deletions, 0),
+          additions: tracked.reduce((sum, file) => sum + file.additions, 0),
+          deletions: tracked.reduce((sum, file) => sum + file.deletions, 0),
+          untracked: result.status
+            .filter(isUntracked)
+            .reduce((sum, file) => sum + file.additions, 0),
         },
       };
     } catch (cause) {

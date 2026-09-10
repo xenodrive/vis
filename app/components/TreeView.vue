@@ -241,6 +241,12 @@
             >
               <span class="tree-stat-add">+{{ activeDiffStats.additions }}</span>
               <span class="tree-stat-del">−{{ activeDiffStats.deletions }}</span>
+              <span
+                v-if="activeDiffStats.untracked"
+                class="tree-stat-untracked"
+                :title="`Untracked: +${activeDiffStats.untracked} lines`"
+                >(+{{ activeDiffStats.untracked }})</span
+              >
               <Icon icon="lucide:chevron-down" :width="11" :height="11" />
             </button>
           </template>
@@ -407,6 +413,7 @@ export type GitBranchInfo = {
 };
 
 export type GitDiffStatsEntry = {
+  untracked?: number;
   additions: number;
   deletions: number;
 };
@@ -526,7 +533,10 @@ const activeDiffStats = computed((): GitDiffStatsEntry | null => {
 });
 
 const hasNoLineChanges = computed(
-  () => activeDiffStats.value?.additions === 0 && activeDiffStats.value.deletions === 0,
+  () =>
+    activeDiffStats.value?.additions === 0 &&
+    activeDiffStats.value.deletions === 0 &&
+    !activeDiffStats.value.untracked,
 );
 
 watch(hasNoLineChanges, (empty) => {
@@ -539,6 +549,7 @@ const diffStatsTitle = computed(() => {
   if (hasNoLineChanges.value) return 'No line changes';
   const parts: string[] = [];
   if (stats.additions > 0) parts.push(`+${stats.additions} insertions`);
+  if (stats.untracked) parts.push(`Untracked: +${stats.untracked} lines`);
   if (stats.deletions > 0) parts.push(`−${stats.deletions} deletions`);
   return `${parts.join(', ')} (change actions)`;
 });

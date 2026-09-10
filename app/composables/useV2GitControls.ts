@@ -1,13 +1,11 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import type { useV2 } from './useV2';
-import type { useV2Pty } from './useV2Pty';
 import type { BranchEntry, GitBranchInfo } from './useFileTree';
 
 const INSPECT = `git status --porcelain=v2 --branch --untracked-files=no && printf '\\nVIS_REFS\\n' && git for-each-ref --format='%(refname)%09%(refname:short)%09%(objectname)%09%(subject)%09%(HEAD)%09%(worktreepath)%09%(upstream:short)' refs/heads refs/remotes && printf '\\nVIS_GIT_OK\\n'`;
 
 export function useV2GitControls(
   state: ReturnType<typeof useV2>,
-  pty: ReturnType<typeof useV2Pty>,
   reloadFiles: () => Promise<void>,
 ) {
   const branch = ref<GitBranchInfo | null>(null);
@@ -18,7 +16,7 @@ export function useV2GitControls(
     const request = ++revision;
     loading.value = true;
     try {
-      const text = await pty.inspect(INSPECT);
+      const text = await state.runGitCommand(INSPECT);
       if (request !== revision) return;
       if (!text.endsWith('VIS_GIT_OK\n'))
         throw new Error(
@@ -75,8 +73,12 @@ export function useV2GitControls(
   }
   async function run(command: string) {
     const location = state.selected.value?.location;
-    const code = await pty.run(command);
-    if (code === 0 && location === state.selected.value?.location) await reloadFiles();
+    try {
+      await state.runGitCommand(command, 'Git command');
+      if (location === state.selected.value?.location) await reloadFiles();
+    } catch (cause) {
+      state.error.value = cause instanceof Error ? cause.message : String(cause);
+    }
   }
   watch(
     () => JSON.stringify(state.selected.value?.location),

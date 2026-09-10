@@ -2,8 +2,8 @@
 import { computed, onActivated, onDeactivated, ref, shallowRef, watch } from 'vue';
 import DiffViewer from '../viewers/DiffViewer.vue';
 import {
-  patchHunks,
-  selectedPatch,
+  displayHunk,
+  type GitPreview,
   type GitActions,
   type GitDiffMode,
   type GitPatch,
@@ -24,14 +24,16 @@ const emit = defineEmits<{
   loading: [value: boolean];
   error: [cause: unknown];
   'toggle-hunk': [index: number];
+  preview: [file: string, preview: GitPreview];
 }>();
 const source = shallowRef<GitSource>();
 const loading = ref(false);
 const error = shallowRef<unknown>();
 let visible = true;
-const hunks = computed(() => (props.selectable ? patchHunks(props.file) : []));
+const hunks = computed(() => source.value?.preview.hunks ?? []);
+const patches = computed(() => hunks.value.map(displayHunk));
 const metadata = computed(() =>
-  props.file.patch
+  (source.value?.preview.header ?? '')
     .split('\n')
     .filter((line) =>
       /^(old mode|new mode|new file mode|deleted file mode|rename from|rename to) /.test(line),
@@ -51,7 +53,10 @@ watch(
     if (visible) emit('loading', true);
     try {
       const result = await props.api.source(props.snapshot, props.mode, props.file);
-      if (!cancelled) source.value = result;
+      if (!cancelled) {
+        source.value = result;
+        emit('preview', props.file.file, result.preview);
+      }
     } catch (cause) {
       if (!cancelled) {
         error.value = cause;
@@ -83,11 +88,15 @@ onDeactivated(() => {
       <span class="git-del">−{{ file.deletions }}</span>
     </div>
     <pre v-if="metadata" class="git-diff-metadata">{{ metadata }}</pre>
-    <p v-if="file.binary" class="git-diff-notice">Binary file changed.</p>
+    <p v-if="source?.preview.binary" class="git-diff-notice">
+      Binary or non-UTF-8 file changed.<template v-if="selectable">
+        Select the whole file.</template
+      >
+    </p>
     <template v-else-if="source">
       <template v-if="hunks.length">
         <div v-for="(_, index) in hunks" :key="index" class="git-hunk">
-          <label
+          <label v-if="selectable && source.preview.selectable"
             ><input
               type="checkbox"
               :checked="selection === 'all' || Boolean(selection?.includes(index))"
@@ -100,7 +109,7 @@ onDeactivated(() => {
             :path="file.file"
             :diff-code="source.before"
             :diff-after="source.after"
-            :diff-patch="selectedPatch(file, [index])"
+            :diff-patch="patches[index]"
             theme="github-dark"
           />
         </div>
@@ -110,6 +119,7 @@ onDeactivated(() => {
         :path="file.file"
         :diff-code="source.before"
         :diff-after="source.after"
+        :diff-patch="source.preview.header"
         theme="github-dark"
       />
     </template>

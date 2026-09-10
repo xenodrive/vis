@@ -1,4 +1,19 @@
 import type { GitFileStatus, GitStatusCode } from '../components/TreeView.vue';
+import previewAwk from './git-preview.awk?raw';
+import { gitPath } from './git-path';
+
+export const DIFF_LINE_CHARACTERS = 1000;
+export const DIFF_HUNK_LINES = 1000;
+export const PROMPT_DIFF_CHARACTERS = 100000;
+export type GitHunk = { patch: string; omittedLines: number; omittedCharacters: number[] };
+export type GitPreview = {
+  header: string;
+  hunks: GitHunk[];
+  binary: boolean;
+  hash: string;
+  selectable: boolean;
+};
+export type GitHunkSelection = { file: GitPatch; hash: string; indices: number[] };
 
 export type GitAction = 'stage' | 'unstage' | 'commit-staged' | 'commit-all';
 export type GitDiffMode = 'staged' | 'unstaged' | 'changes' | 'untracked';
@@ -7,21 +22,23 @@ export type GitSource = {
   after: string;
   beforeBase64: string;
   afterBase64: string;
+  preview: GitPreview;
 };
 export type GitPatch = {
   file: string;
-  patch: string;
+  change: string;
   additions: number;
   deletions: number;
   binary: boolean;
+  pathBase64: string;
 };
 export type GitSnapshot = {
   root: string;
   head: string;
   branchRef: string;
-  indexTree: string;
-  workingTree: string;
-  untrackedTree: string;
+  indexHash: string;
+  workingHash: string;
+  untrackedHashes: string[];
   status: Record<string, GitFileStatus>;
   staged: GitPatch[];
   unstaged: GitPatch[];
@@ -34,64 +51,76 @@ export function shellQuote(value: string) {
 }
 
 const DIFF =
-  'git -c core.quotePath=false diff --no-ext-diff --no-textconv --no-renames --no-relative --no-color --src-prefix=a/ --dst-prefix=b/ --submodule=short --ignore-submodules=none';
+  'git -c core.quotePath=true diff --no-ext-diff --no-textconv --no-renames --no-relative --no-color --src-prefix=a/ --dst-prefix=b/ --submodule=short --ignore-submodules=none';
 const SETUP = `set -eu
 export GIT_LITERAL_PATHSPECS=1
+export GIT_OPTIONAL_LOCKS=0
 cd "$(git rev-parse --show-toplevel)"
-d=$(mktemp -d)
-trap 'rm -rf "$d"' EXIT
-`;
-const COPY_INDEX = `index=$(git rev-parse --git-path index)
-if test -f "$index"; then cp "$index" "$d/index"; else GIT_INDEX_FILE="$d/index" git read-tree --empty; fi
+capture() {
+  captured=$(
+    exec 4>&1
+    status=$( { { (set -e; eval "$1"); result=$?; printf '%s' "$result" >&3; } | base64 >&4; } 3>&1 )
+    printf 'VIS_EXIT_%s' "$status"
+  )
+  case "$captured" in
+    *VIS_EXIT_0) encoded=\${captured%VIS_EXIT_0} ;;
+    *) printf '%s\\n' 'Git command failed.' >&2; return 1 ;;
+  esac
+}
 `;
 const SEPARATOR = '\nVIS_GIT_SECTION\n';
 
 function section(command: string) {
-  return `{ ${command}; } > "$d/output"
-base64 < "$d/output"
+  return `capture ${shellQuote(command)}
+printf '%s' "$encoded"
 printf '\\nVIS_GIT_SECTION\\n'
 `;
 }
 
+function fingerprint(command: string) {
+  return `capture ${shellQuote(command)}\nprintf '%s' "$encoded" | git hash-object --stdin`;
+}
+
+const INDEX_HASH = fingerprint('git ls-files --stage -z');
+const WORK_HASH = fingerprint(`${DIFF} --binary --full-index --no-abbrev`);
+
 function diffSections(args: string) {
-  return (
-    section(`${DIFF} --numstat -z ${args}`) +
-    section(`${DIFF} --binary --full-index --unified=3 --inter-hunk-context=0 ${args}`)
-  );
+  return section(`${DIFF} --raw --numstat ${args}`);
 }
 
 function decode(value: string) {
-  return new TextDecoder('utf-8', { fatal: true }).decode(
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
     Uint8Array.from(atob(value.replaceAll(/\s/g, '')), (char) => char.charCodeAt(0)),
   );
 }
 
-export function parsePatches(stats: string, patch: string): GitPatch[] {
-  const files = stats.split('\0').filter(Boolean);
-  const patches: string[] = [];
-  for (const part of patch.split(/(?=^diff --git )/m).filter(Boolean)) {
-    // Git emits deletion/addition patches for a type change, but one numstat entry.
-    const previous = patches.at(-1);
-    if (previous && previous.split('\n', 1)[0] === part.split('\n', 1)[0])
-      patches[patches.length - 1] += part;
-    else patches.push(part);
+export function parsePatches(stats: string): GitPatch[] {
+  const changes = new Map<string, string>();
+  for (const line of stats.split('\n').filter((line) => line.startsWith(':'))) {
+    const match = /^:\d+ \d+ [a-f\d]+ [a-f\d]+ ([A-Z])\t(.+)$/.exec(line);
+    if (!match) throw new Error('Invalid Git change metadata.');
+    changes.set(match[2], match[1]);
   }
-  if (files.length !== patches.length) throw new Error('Git diff file counts do not match.');
-  return files.map((entry, index) => {
-    const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(entry);
-    if (!match) throw new Error('Invalid Git diff statistics.');
-    return {
-      file: match[3],
-      additions: match[1] === '-' ? 0 : Number(match[1]),
-      deletions: match[2] === '-' ? 0 : Number(match[2]),
-      binary: match[1] === '-',
-      patch: patches[index],
-    };
-  });
+  return stats
+    .split('\n')
+    .filter((line) => line && !line.startsWith(':'))
+    .map((entry) => {
+      const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(entry);
+      if (!match) throw new Error('Invalid Git diff statistics.');
+      const change = changes.get(match[3]);
+      if (!change) throw new Error('Missing Git change metadata.');
+      return {
+        ...gitPath(match[3]),
+        additions: match[1] === '-' ? 0 : Number(match[1]),
+        deletions: match[2] === '-' ? 0 : Number(match[2]),
+        binary: match[1] === '-',
+        change,
+      };
+    });
 }
 
 function parseStatus(text: string): GitSnapshot['status'] {
-  const entries = text.split('\0');
+  const entries = text.split('\n');
   const result: GitSnapshot['status'] = Object.create(null);
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -100,26 +129,50 @@ function parseStatus(text: string): GitSnapshot['status'] {
     const worktree = entry[1].trim();
     if (![index, worktree].every((code) => ['', 'M', 'A', 'D', 'R', 'C', 'T', '?'].includes(code)))
       throw new Error('Resolve Git conflicts before staging or committing changes.');
-    const path = entry.slice(3);
+    const path = gitPath(entry.slice(3)).file;
     result[path] = { path, index: index as GitStatusCode, worktree: worktree as GitStatusCode };
-    if ([index, worktree].some((code) => code === 'R' || code === 'C'))
-      result[path].origPath = entries[++i];
   }
   return result;
 }
 
-export function patchHunks(file: GitPatch) {
-  // Structural changes must be staged as a whole file.
-  if (file.binary || /^(new file|deleted file|old mode|new mode|index .* 160000)/m.test(file.patch))
-    return [];
-  return file.patch.match(/^@@ .*?(?=^@@ |$(?![\s\S]))/gms) ?? [];
+export function displayHunk(hunk: GitHunk) {
+  const lines = hunk.patch.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return (
+    lines
+      .map(
+        (line, index) =>
+          line +
+          (hunk.omittedCharacters[index]
+            ? `\n\\ [${hunk.omittedCharacters[index]} characters omitted]`
+            : ''),
+      )
+      .join('\n') +
+    (hunk.omittedLines ? `\n\\ [${hunk.omittedLines} hunk lines omitted]` : '') +
+    '\n'
+  );
 }
 
-export function selectedPatch(file: GitPatch, selected: number[]) {
-  const hunks = patchHunks(file);
-  const start = file.patch.indexOf('\n@@ ');
-  if (!hunks.length || start < 0) throw new Error('This file requires whole-file staging.');
-  return file.patch.slice(0, start + 1) + selected.map((index) => hunks[index]).join('');
+function setPath(file: GitPatch) {
+  return `path=$(printf '%s' ${shellQuote(file.pathBase64)} | base64 -d; printf '.')\npath=\${path%.}\n`;
+}
+
+function filePatch(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch) {
+  const base = snapshot.head
+    ? shellQuote(snapshot.head)
+    : '"$(git hash-object -t tree --stdin < /dev/null)"';
+  const args =
+    mode === 'untracked'
+      ? '--no-index'
+      : mode === 'staged'
+        ? `--cached ${base}`
+        : mode === 'changes'
+          ? base
+          : '';
+  return (
+    setPath(file) +
+    `${DIFF} --binary --full-index --unified=3 --inter-hunk-context=0 ${args} -- ${mode === 'untracked' ? '/dev/null ' : ''}"$path"${mode === 'untracked' ? ' || test "$?" = 1' : ''}\n`
+  );
 }
 
 export function createGitActions(
@@ -142,92 +195,187 @@ export function createGitActions(
     const parts = await read(
       section('pwd -P') +
         section('git rev-parse --verify -q HEAD || test "$?" = 1') +
-        COPY_INDEX +
-        `export GIT_INDEX_FILE="$d/index"\n` +
-        section('git write-tree') +
-        section('git status --porcelain=v1 -z --untracked-files=all') +
+        section(INDEX_HASH) +
+        section(
+          'git -c core.quotePath=true status --porcelain=v1 --no-renames --untracked-files=all',
+        ) +
         diffSections('--cached') +
         diffSections('') +
-        `git add -u\n` +
-        diffSections('--cached') +
+        `base=$(git rev-parse --verify -q HEAD || test "$?" = 1)\nif test -z "$base"; then base=$(git hash-object -t tree --stdin < /dev/null); fi\n` +
+        diffSections('"$base"') +
         section('git symbolic-ref -q HEAD || test "$?" = 1') +
-        `workingTree=$(git write-tree)\n` +
-        section('printf "%s" "$workingTree"') +
-        (includeUntracked ? 'git add -A\n' : '') +
-        section('git write-tree') +
-        diffSections('--cached "$workingTree"'),
-      15,
+        section(WORK_HASH),
+      9,
     );
-    return {
+    const result: GitSnapshot = {
       root: parts[0].trimEnd(),
       head: parts[1].trim(),
-      branchRef: parts[10].trim(),
-      indexTree: parts[2].trim(),
-      workingTree: parts[11].trim(),
-      untrackedTree: parts[12].trim(),
+      branchRef: parts[7].trim(),
+      indexHash: parts[2].trim(),
+      workingHash: parts[8].trim(),
+      untrackedHashes: [],
       status: parseStatus(parts[3]),
-      staged: parsePatches(parts[4], parts[5]),
-      unstaged: parsePatches(parts[6], parts[7]),
-      changes: parsePatches(parts[8], parts[9]),
-      untracked: parsePatches(parts[13], parts[14]),
+      staged: parsePatches(parts[4]),
+      unstaged: parsePatches(parts[5]),
+      changes: parsePatches(parts[6]),
+      untracked: [],
     };
-  }
-
-  const sources = new WeakMap<GitSnapshot, Map<string, Promise<GitSource>>>();
-  function source(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch): Promise<GitSource> {
-    let cache = sources.get(snapshot);
-    if (!cache) {
-      cache = new Map();
-      sources.set(snapshot, cache);
+    if (includeUntracked) {
+      const names = parts[3]
+        .split('\n')
+        .filter((line) => line.startsWith('?? '))
+        .map((line) => gitPath(line.slice(3)));
+      if (names.length) {
+        const data = await read(
+          names
+            .map((name) => {
+              const file: GitPatch = {
+                ...name,
+                change: 'A',
+                additions: 0,
+                deletions: 0,
+                binary: false,
+              };
+              return (
+                section(
+                  setPath(file) +
+                    `${DIFF} --no-index --numstat -- /dev/null "$path" || test "$?" = 1`,
+                ) + section(fingerprint(filePatch(result, 'untracked', file)))
+              );
+            })
+            .join(''),
+          names.length * 2,
+        );
+        result.untracked = names.map((name, index) => {
+          const match = /^(\d+|-)\t(\d+|-)\t/.exec(data[index * 2]);
+          if (!match) throw new Error('Invalid untracked file statistics.');
+          return {
+            ...name,
+            change: 'A',
+            additions: match[1] === '-' ? 0 : Number(match[1]),
+            deletions: 0,
+            binary: match[1] === '-',
+          };
+        });
+        result.untrackedHashes = data
+          .filter((_, index) => index % 2 === 1)
+          .map((hash) => hash.trim());
+      }
     }
-    const key = JSON.stringify([mode, file.file]);
-    const existing = cache.get(key);
-    if (existing) return existing;
-    const before =
-      mode === 'untracked' ? '' : mode === 'unstaged' ? snapshot.indexTree : snapshot.head;
-    const after =
-      mode === 'untracked'
-        ? snapshot.untrackedTree
-        : mode === 'staged'
-          ? snapshot.indexTree
-          : snapshot.workingTree;
-    function content(tree: string) {
-      if (!tree) return ':';
-      return `entry=$(git ls-tree --format='%(objectmode) %(objecttype) %(objectname)' ${shellQuote(tree)} -- ${shellQuote(file.file)})
-if test -n "$entry"; then
-  set -- $entry
-  case "$2" in
-    blob) git cat-file blob "$3" ;;
-    commit) printf 'Subproject commit %s\\n' "$3" ;;
-    *) printf 'Unsupported Git object type: %s\\n' "$2" >&2; exit 1 ;;
-  esac
-fi`;
-    }
-    const result = readEncoded(
-      `test "$(pwd -P)" = ${shellQuote(snapshot.root)}\n` +
-        section(content(before)) +
-        section(content(after)),
-      2,
-    ).then(([beforeBase64, afterBase64]) => ({
-      before: file.binary ? '' : decode(beforeBase64),
-      after: file.binary ? '' : decode(afterBase64),
-      beforeBase64,
-      afterBase64,
-    }));
-    cache.set(key, result);
     return result;
   }
 
-  async function untrackedPatch(path: string) {
-    const parts = await read(
-      COPY_INDEX +
-        `export GIT_INDEX_FILE="$d/index"\ngit add -- ${shellQuote(path)}\n` +
-        diffSections(`--cached -- ${shellQuote(path)}`),
-      2,
+  const previews = new WeakMap<GitSnapshot, Map<string, Promise<GitPreview>>>();
+  const sources = new WeakMap<GitSnapshot, Map<string, Promise<GitSource>>>();
+  function cacheFor<T>(
+    cache: WeakMap<GitSnapshot, Map<string, Promise<T>>>,
+    snapshot: GitSnapshot,
+  ) {
+    let entries = cache.get(snapshot);
+    if (!entries) {
+      entries = new Map();
+      cache.set(snapshot, entries);
+    }
+    return entries;
+  }
+  async function inspectFile(
+    snapshot: GitSnapshot,
+    mode: GitDiffMode,
+    file: GitPatch,
+    includeSource: boolean,
+  ): Promise<GitSource> {
+    function content(kind: 'head' | 'index' | 'working' | 'empty') {
+      if (kind === 'empty' || (kind === 'head' && !snapshot.head)) return ':';
+      if (kind === 'working')
+        return `if test -L "$path"; then
+target=$(readlink "$path"; printf '.')
+target=\${target%.}
+printf '%s' "\${target%?}"
+elif test -f "$path"; then cat -- "$path"
+elif test -d "$path"; then printf 'Subproject commit %s\\n' "$(git -C "$path" rev-parse HEAD)"
+elif test -e "$path"; then printf 'Unsupported file type\\n' >&2; exit 1
+fi`;
+      return `entry=$(${kind === 'index' ? "git ls-files --format='%(objectmode) %(objectname)'" : `git ls-tree --format='%(objectmode) %(objectname)' ${shellQuote(snapshot.head)}`} -- "$path")
+if test -n "$entry"; then
+  set -- $entry
+  case "$1" in
+    160000) printf 'Subproject commit %s\\n' "$2" ;;
+    *) git cat-file blob "$2" ;;
+  esac
+fi`;
+    }
+    const parts = await readEncoded(
+      guard(snapshot) +
+        verifyWorktree(snapshot) +
+        `command -v iconv > /dev/null\n` +
+        setPath(file) +
+        `capture ${shellQuote(content(mode === 'untracked' ? 'empty' : mode === 'unstaged' ? 'index' : 'head'))}\nbefore64=$encoded\n` +
+        `capture ${shellQuote(content(mode === 'staged' ? 'index' : 'working'))}\nafter64=$encoded\n` +
+        `capture ${shellQuote(filePatch(snapshot, mode, file))}\npatch64=$encoded\n` +
+        `binary=${file.binary ? 'true' : 'false'}
+for source64 in "$before64" "$after64" "$patch64"; do
+  if ! printf '%s' "$source64" | base64 -d | iconv -f UTF-8 -t UTF-8 > /dev/null 2>&1; then binary=true; fi
+done
+` +
+        section(
+          `if test "$binary" = false; then printf '%s' "$patch64" | base64 -d | LC_ALL=C awk -v maxchars=${DIFF_LINE_CHARACTERS} -v maxlines=${DIFF_HUNK_LINES} ${shellQuote(previewAwk)}; else printf '{"header":"","hunks":[]}'; fi`,
+        ) +
+        section('printf "%s" "$binary"') +
+        section('printf "%s" "$patch64" | base64 -d | git hash-object --stdin') +
+        section(
+          includeSource
+            ? 'if test "$binary" = false; then printf "%s" "$before64" | base64 -d; fi'
+            : ':',
+        ) +
+        section(
+          includeSource
+            ? 'if test "$binary" = false; then printf "%s" "$after64" | base64 -d; fi'
+            : ':',
+        ) +
+        guard(snapshot) +
+        verifyWorktree(snapshot),
+      5,
     );
-    const files = parsePatches(parts[0], parts[1]);
-    if (files.length !== 1) throw new Error('The untracked file changed. Refresh and try again.');
-    return files[0];
+    const preview = JSON.parse(decode(parts[0])) as GitPreview;
+    preview.binary = decode(parts[1]) === 'true';
+    preview.hash = decode(parts[2]).trim();
+    preview.selectable =
+      !preview.binary &&
+      preview.hunks.length > 0 &&
+      !/^(new file|deleted file|old mode|new mode|index .* 160000)/m.test(preview.header);
+    return {
+      preview,
+      before: decode(parts[3]),
+      after: decode(parts[4]),
+      beforeBase64: parts[3],
+      afterBase64: parts[4],
+    };
+  }
+
+  function preview(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch) {
+    const cache = cacheFor(previews, snapshot);
+    const key = JSON.stringify([mode, file.pathBase64]);
+    const existing = cache.get(key);
+    if (existing) return existing;
+    const sourceRequest = sources.get(snapshot)?.get(key);
+    const request = (sourceRequest ?? inspectFile(snapshot, mode, file, false)).then(
+      (result) => result.preview,
+    );
+    cache.set(key, request);
+    return request;
+  }
+
+  function source(snapshot: GitSnapshot, mode: GitDiffMode, file: GitPatch): Promise<GitSource> {
+    const cache = cacheFor(sources, snapshot);
+    const key = JSON.stringify([mode, file.pathBase64]);
+    const existing = cache.get(key);
+    if (existing) return existing;
+    const result = inspectFile(snapshot, mode, file, true).then((value) => {
+      cacheFor(previews, snapshot).set(key, Promise.resolve(value.preview));
+      return value;
+    });
+    cache.set(key, result);
+    return result;
   }
 
   async function recentMessages(snapshot: GitSnapshot) {
@@ -257,52 +405,104 @@ git --no-pager log -10 --date-order --no-merges --no-show-signature --encoding=U
     return `test "$(pwd -P)" = ${shellQuote(snapshot.root)}
 test "$(git rev-parse --verify -q HEAD || test "$?" = 1)" = ${shellQuote(snapshot.head)}
 test "$(git symbolic-ref -q HEAD || test "$?" = 1)" = ${shellQuote(snapshot.branchRef)}
-test "$(git write-tree)" = ${shellQuote(snapshot.indexTree)}
+test "$(${INDEX_HASH})" = ${shellQuote(snapshot.indexHash)}
 `;
+  }
+
+  function verifyWorktree(snapshot: GitSnapshot) {
+    const hashes = snapshot.untrackedHashes;
+    return (
+      `test "$(${WORK_HASH})" = ${shellQuote(snapshot.workingHash)}\n` +
+      snapshot.untracked
+        .map(
+          (file, index) =>
+            `test "$(${fingerprint(filePatch(snapshot, 'untracked', file))})" = ${shellQuote(hashes[index])}\n`,
+        )
+        .join('')
+    );
+  }
+
+  function fileArguments(snapshot: GitSnapshot, paths: string[]) {
+    return (
+      'set --\n' +
+      paths
+        .map((path) => {
+          const file = [
+            ...snapshot.staged,
+            ...snapshot.unstaged,
+            ...snapshot.changes,
+            ...snapshot.untracked,
+          ].find((file) => file.file === path);
+          if (!file) throw new Error('Selected file is no longer available.');
+          return setPath(file) + 'set -- "$@" "$path"\n';
+        })
+        .join('')
+    );
   }
 
   async function stage(
     snapshot: GitSnapshot,
     reverse: boolean,
     files: string[],
-    patches: string[],
+    patches: GitHunkSelection[],
   ) {
-    // Prepare all selections in a separate index, then update the real index atomically via Git.
+    // Assemble the complete selected patch in memory and apply it in one Git operation.
     const script =
       SETUP +
       guard(snapshot) +
-      COPY_INDEX +
-      `export GIT_INDEX_FILE="$d/index"\n` +
-      (files.length
-        ? reverse
-          ? snapshot.head
-            ? `git restore --staged -- ${files.map(shellQuote).join(' ')}\n`
-            : `git rm --cached -f -- ${files.map(shellQuote).join(' ')}\n`
-          : `git add -A -- ${files.map(shellQuote).join(' ')}\n`
-        : '') +
-      (patches.length
-        ? `printf '%s' ${shellQuote(patches.join(''))} | git apply --cached ${reverse ? '--reverse' : ''} --whitespace=nowarn\n`
-        : '') +
-      `tree=$(git write-tree)
-unset GIT_INDEX_FILE
-${guard(snapshot)}${DIFF} --binary --full-index --unified=3 ${shellQuote(snapshot.indexTree)} "$tree" > "$d/selection.patch"
-git apply --cached --whitespace=nowarn "$d/selection.patch"
-`;
+      verifyWorktree(snapshot) +
+      `batch=''\n` +
+      files
+        .map((path) => {
+          const file = (
+            reverse ? snapshot.staged : [...snapshot.unstaged, ...snapshot.untracked]
+          ).find((file) => file.file === path);
+          if (!file) throw new Error('Selected file is no longer available.');
+          const mode = reverse
+            ? 'staged'
+            : snapshot.untracked.includes(file)
+              ? 'untracked'
+              : 'unstaged';
+          return `capture ${shellQuote(filePatch(snapshot, mode, file))}\nbatch=$batch$(printf '%s' "$encoded" | base64 -d; printf '.')\nbatch=\${batch%.}\n`;
+        })
+        .join('') +
+      patches
+        .map((selection) => {
+          if (
+            !/^[0-9a-f]{40,64}$/.test(selection.hash) ||
+            !selection.indices.length ||
+            new Set(selection.indices).size !== selection.indices.length ||
+            selection.indices.some((index) => !Number.isSafeInteger(index) || index < 0)
+          )
+            throw new Error('Invalid hunk selection.');
+          return (
+            `capture ${shellQuote(filePatch(snapshot, reverse ? 'staged' : 'unstaged', selection.file))}\npatch64=$encoded\n` +
+            `test "$(printf '%s' "$patch64" | base64 -d | git hash-object --stdin)" = ${shellQuote(selection.hash)}\n` +
+            `capture ${shellQuote(`printf '%s' "$patch64" | base64 -d | LC_ALL=C awk -v last=${Math.max(...selection.indices) + 1} -v chosen=${shellQuote(',' + selection.indices.map((index) => index + 1).join(',') + ',')} '/^@@ / { hunk++ } !hunk || index(chosen, "," hunk ",") { print } END { if (hunk < last) exit 1 }'`)}\n` +
+            `batch=$batch$(printf '%s' "$encoded" | base64 -d; printf '.')\nbatch=\${batch%.}\n`
+          );
+        })
+        .join('') +
+      guard(snapshot) +
+      verifyWorktree(snapshot) +
+      `printf '%s' "$batch" | git apply --cached ${reverse ? '--reverse' : ''} --whitespace=nowarn\n`;
     const code = await run(script, reverse ? 'Unstage selected changes' : 'Stage selected changes');
-    if (code !== 0) throw new Error('Git staging failed. Review the terminal output and refresh.');
+    if (code !== 0) throw new Error('Git staging failed. Refresh before continuing.');
   }
 
   async function commit(snapshot: GitSnapshot, all: boolean, untracked: string[], message: string) {
     const script =
       SETUP +
       guard(snapshot) +
-      (untracked.length ? `git add -- ${untracked.map(shellQuote).join(' ')}\n` : '') +
-      `printf '%s' ${shellQuote(message)} > "$d/message"\ngit commit ${all ? '-a ' : ''}-F "$d/message"\n`;
+      verifyWorktree(snapshot) +
+      fileArguments(snapshot, untracked) +
+      (untracked.length ? `git add -- "$@"\n` : '') +
+      `printf '%s' ${shellQuote(message)} | git commit ${all ? '-a ' : ''}-F -\n`;
     const code = await run(script, all ? 'git commit -a' : 'git commit');
-    if (code !== 0) throw new Error('Git commit failed. Review the terminal output and refresh.');
+    if (code !== 0) throw new Error('Git commit failed. Refresh before continuing.');
   }
 
-  return { snapshot, source, untrackedPatch, recentMessages, stage, commit };
+  return { snapshot, source, preview, recentMessages, stage, commit };
 }
 
 export type GitActions = ReturnType<typeof createGitActions>;
