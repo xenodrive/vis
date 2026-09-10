@@ -255,6 +255,17 @@ function getDragBounds() {
   const extent = props.manager.getExtent();
   const w = props.entry.width || 600;
   const h = props.entry.height || 400;
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    return {
+      minX: 0,
+      maxX: Math.max(0, extent.width - w),
+      minY: 0,
+      maxY: Math.max(0, extent.height - h),
+      w,
+      h,
+      extent,
+    };
+  }
   const xBounds = getAxisBounds(extent.width, w, TITLEBAR_VISIBLE_PX);
   const keepVisibleY = Math.max(1, Math.min(TITLEBAR_VISIBLE_PX, extent.height));
   return {
@@ -294,6 +305,10 @@ function onDragMove(e: PointerEvent) {
   const { minX, maxX, minY, maxY } = getDragBounds();
   dragX += dx * (dragX < minX || dragX > maxX ? 0.5 : 1);
   dragY += dy * (dragY < minY || dragY > maxY ? 0.5 : 1);
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    dragX = Math.max(minX, Math.min(dragX, maxX));
+    dragY = Math.max(minY, Math.min(dragY, maxY));
+  }
 
   // Direct DOM update — bypasses Vue reactivity and restyle cascade
   applyTransform(dragX, dragY);
@@ -417,6 +432,11 @@ function onResizeMove(e: PointerEvent) {
   const dy = e.clientY - resizeStartY;
   props.entry.width = Math.max(200, windowStartWidth + dx);
   props.entry.height = Math.max(150, windowStartHeight + dy);
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    const extent = props.manager.getExtent();
+    props.entry.width = Math.min(props.entry.width, extent.width - props.entry.x);
+    props.entry.height = Math.min(props.entry.height, extent.height - props.entry.y);
+  }
 }
 
 function onResizeEnd(e: PointerEvent) {
@@ -441,7 +461,14 @@ function onResizeEnd(e: PointerEvent) {
   >
     <div class="floating-window-titlebar" @pointerdown="onDragStart">
       <span class="title">{{ entry.title || 'Tool' }}</span>
-      <button v-if="entry.closable" class="close-btn" @click.stop="onClose">×</button>
+      <button
+        v-if="entry.closable"
+        class="close-btn"
+        aria-label="Close window"
+        @click.stop="onClose"
+      >
+        ×
+      </button>
     </div>
     <div class="floating-window-body-wrapper">
       <div
@@ -557,6 +584,19 @@ function onResizeEnd(e: PointerEvent) {
 
 .floating-window-titlebar:active {
   cursor: grabbing;
+}
+.floating-window-titlebar {
+  touch-action: none;
+}
+@media (pointer: coarse) {
+  .floating-window-titlebar {
+    min-height: 36px;
+  }
+  .close-btn {
+    min-width: 36px;
+    min-height: 36px;
+    flex-shrink: 0;
+  }
 }
 
 .floating-window-titlebar .title {

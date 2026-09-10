@@ -167,6 +167,11 @@ defineExpose({
   min-height: 0;
   overflow-y: auto;
 }
+@media (max-width: 768px) {
+  .model-picker {
+    max-height: calc(var(--viewport-height, 100dvh) * 0.6 - 14px);
+  }
+}
 .model-search {
   flex: 0 0 auto;
   padding: 0 0 4px;

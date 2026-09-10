@@ -561,7 +561,7 @@ defineExpose({
   padding: 8px;
   display: flex;
   flex-direction: column;
-  max-height: calc(60vh - 14px);
+  max-height: calc(var(--viewport-height, 100dvh) * 0.6 - 14px);
   box-sizing: border-box;
   overflow: hidden;
 }

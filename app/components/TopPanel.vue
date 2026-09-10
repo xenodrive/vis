@@ -2,6 +2,17 @@
   <div class="top-panel">
     <div class="top-row">
       <div class="top-left flex items-center gap-2" :title="gitRevision">
+        <button
+          v-if="showFilesToggle"
+          class="control-button files-button"
+          type="button"
+          :aria-expanded="filesExpanded"
+          aria-label="Toggle files"
+          title="Files"
+          @click="emit('toggle-files')"
+        >
+          <Icon icon="lucide:folder-tree" :width="16" :height="16" />
+        </button>
         <img width="48px" height="24px" :src="logoUrl" class="" />
         <div class="font-normal hidden lg:block translate-y-0.5">OpenCode Visualizer</div>
         <div id="location-picker"></div>
@@ -286,15 +297,6 @@
         </div>
       </div>
       <div class="top-corner">
-        <a
-          href="https://github.com/xenodrive/vis/"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="control-button github-button"
-          title="GitHub"
-        >
-          <Icon icon="lucide:github" :width="16" :height="16" />
-        </a>
         <Dropdown
           v-model:open="menuOpen"
           auto-close
@@ -378,6 +380,8 @@ type SessionSelectPayload = {
 };
 
 const props = defineProps<{
+  showFilesToggle?: boolean;
+  filesExpanded?: boolean;
   treeData: TopPanelWorktree[];
   notificationSessions: TopPanelNotificationSession[];
   projectDirectory: string;
@@ -395,6 +399,7 @@ const totalNotificationCount = computed(() =>
 );
 
 const emit = defineEmits<{
+  (event: 'toggle-files'): void;
   (event: 'load-more'): void;
   (event: 'select-notification'): void;
   (event: 'select-session', payload: SessionSelectPayload): void;
@@ -770,6 +775,35 @@ function handleOpenDirectory(close: () => void) {
   width: min(680px, 70vw);
   min-width: 260px;
 }
+@media (max-width: 768px) {
+  .top-panel {
+    margin: calc(-1 * var(--app-padding-top)) calc(-1 * var(--app-padding-right)) 0
+      calc(-1 * var(--app-padding-left));
+    padding: var(--app-padding-top) var(--app-padding-right) 4px var(--app-padding-left);
+    width: calc(100% + var(--app-padding-left) + var(--app-padding-right));
+  }
+  .top-row {
+    gap: 4px;
+  }
+  .top-left > img {
+    display: none;
+  }
+  .top-center {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .top-corner,
+  .top-right {
+    gap: 4px;
+  }
+  .tree-dropdown-root {
+    min-width: 0;
+    width: 100%;
+  }
+  #location-picker {
+    flex: 1;
+  }
+}
 
 .tree-menu {
   display: flex;
@@ -1139,15 +1173,20 @@ function handleOpenDirectory(close: () => void) {
   cursor: pointer;
 }
 
+.files-button,
 .new-session-button {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
   padding: 0;
   justify-content: center;
+}
+
+.new-session-button {
   color: #86efac;
 }
 
+.files-button:hover,
 .new-session-button:hover,
 .open-shell-button:hover {
   background: #1d2a45;
@@ -1250,24 +1289,6 @@ function handleOpenDirectory(close: () => void) {
 .control-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.github-button {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  padding: 0;
-  justify-content: center;
-  text-decoration: none;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: #94a3b8;
-}
-
-.github-button:hover {
-  background: transparent;
-  color: #e2e8f0;
 }
 
 .menu-button {

@@ -128,6 +128,20 @@ export function useFloatingWindows() {
 
   function setExtent(w: number, h: number) {
     extent = { width: w, height: h };
+    for (const entry of entriesMap.values()) fitWindow(entry);
+  }
+
+  function fitWindow(entry: FloatingWindowEntry) {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      entry.width = Math.min(entry.width ?? 600, extent.width);
+      entry.height = Math.min(entry.height ?? 400, extent.height);
+      entry.x = Math.max(0, Math.min(entry.x, extent.width - entry.width));
+      entry.y = Math.max(0, Math.min(entry.y, extent.height - entry.height));
+    } else {
+      const bounds = getAxisBounds(extent.width, entry.width ?? 600, TITLEBAR_VISIBLE_PX);
+      entry.x = Math.max(bounds.min, Math.min(entry.x, bounds.max));
+      entry.y = Math.max(0, Math.min(entry.y, extent.height - TITLEBAR_VISIBLE_PX));
+    }
   }
 
   function getExtent(): Extent {
@@ -249,6 +263,7 @@ export function useFloatingWindows() {
 
     const shouldFocusOnOpen = !existing && merged.focusOnOpen === true;
 
+    fitWindow(merged);
     entriesMap.set(key, sanitizeEntry(merged));
 
     scheduleExpiry(key, merged.expiresAt);
@@ -267,7 +282,7 @@ export function useFloatingWindows() {
           `[data-floating-key="${CSS.escape(key)}"] .floating-window-body`,
         ) as HTMLElement | null;
         if (!body) return;
-        body.focus();
+        body.focus({ preventScroll: true });
       }, 0);
     }
   }
@@ -289,6 +304,7 @@ export function useFloatingWindows() {
       }
     }
 
+    fitWindow(merged);
     entriesMap.set(key, sanitizeEntry(merged));
 
     if (partialOpts.status === 'completed' || partialOpts.status === 'error') {

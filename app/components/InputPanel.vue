@@ -872,6 +872,37 @@ const inputMessageStyle = computed(() => {
   color: #e2e8f0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 }
+@media (max-width: 768px) {
+  .input-panel .input-textarea {
+    font-size: 14px;
+    padding: 6px 8px;
+    overflow: auto;
+  }
+  .input-panel .input-toolbar {
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+    padding: 4px;
+    gap: 4px;
+  }
+  .input-panel .input-selects {
+    display: block;
+  }
+  .input-panel .input-field {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .input-panel .input-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+  .input-panel .input-message {
+    min-height: 0;
+  }
+  :deep(.input-dropdown-popup:has(.agent-dropdown-item)) {
+    min-width: 0;
+  }
+}
 
 .input-message {
   width: 100%;

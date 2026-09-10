@@ -24,6 +24,9 @@
     <template v-if="ready">
       <header ref="headerEl" class="app-header">
         <TopPanel
+          :show-files-toggle="isMobile"
+          :files-expanded="!sidePanelCollapsed"
+          @toggle-files="sidePanelCollapsed = !sidePanelCollapsed"
           :tree-data="topPanelTreeData"
           :notification-sessions="notificationSessions"
           :project-directory="currentProject?.canonical ?? directory"
@@ -55,6 +58,12 @@
           sidePanelWidth !== null ? { '--todo-panel-width': `${sidePanelWidth}px` } : undefined
         "
       >
+        <button
+          v-if="isMobile && !sidePanelCollapsed"
+          class="side-backdrop"
+          aria-label="Close files"
+          @click="sidePanelCollapsed = true"
+        ></button>
         <div ref="sidePanelAreaEl" class="side-panel-area">
           <SidePanel
             class="todo-panel"
@@ -455,6 +464,7 @@ const sessionPickerRef = ref<InstanceType<typeof SessionPicker>>();
 const outputPanelRef = ref<InstanceType<typeof OutputPanel>>();
 const inputPanelRef = ref<InstanceType<typeof InputPanel>>();
 const {
+  isMobile,
   inputHeight,
   sidePanelWidth,
   sidePanelCollapsed,
@@ -926,6 +936,7 @@ function keydown(event: KeyboardEvent) {
     lastEscape = sessionID && running.value ? { time: now, sessionID } : undefined;
     if (isSettingsOpen.value) isSettingsOpen.value = false;
     else if (isProjectPickerOpen.value) isProjectPickerOpen.value = false;
+    else if (isMobile.value && !sidePanelCollapsed.value) sidePanelCollapsed.value = true;
     else {
       const manual = fw.entries.value
         .filter((entry) => entry.closable)
@@ -1020,10 +1031,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
     Consolas, 'Liberation Mono', monospace;
   --term-font-size: 13px;
   --term-line-height: 1.1;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
+  position: fixed;
+  top: var(--viewport-top, 0px);
+  left: var(--viewport-left, 0px);
+  width: var(--viewport-width, 100%);
+  height: var(--viewport-height, 100dvh);
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1155,7 +1168,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  min-height: 200px;
+  min-height: min(200px, 40%);
+  max-height: 60%;
 }
 .input-resizer {
   position: absolute;
@@ -1269,11 +1283,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
 .tool-window-canvas {
   position: fixed;
   top: var(--canvas-top, 0px);
-  left: 0;
-  width: 100vw;
+  left: var(--viewport-left, 0px);
+  width: var(--viewport-width, 100%);
   height: var(--canvas-height, 100%);
   pointer-events: none;
-  overflow: visible;
+  overflow: clip;
   z-index: 20;
   --dock-reserved: 0px;
   --tool-top-offset: 0px;
@@ -1287,6 +1301,63 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   min-width: 0;
   height: 100%;
   min-height: 0;
+}
+.app-loading-card {
+  max-height: 100%;
+  overflow: auto;
+}
+.app-output,
+.app-body,
+.app-header {
+  min-width: 0;
+}
+@media (max-width: 768px) {
+  .app {
+    --app-padding-top: max(6px, env(safe-area-inset-top));
+    --app-padding-right: max(6px, env(safe-area-inset-right));
+    --app-padding-left: max(6px, env(safe-area-inset-left));
+    padding: var(--app-padding-top) var(--app-padding-right) max(6px, env(safe-area-inset-bottom))
+      var(--app-padding-left);
+    gap: 6px;
+  }
+  .app-body,
+  .app-main-column {
+    gap: 6px;
+  }
+  .side-panel-area {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(340px, 90%);
+    z-index: 50;
+  }
+  .todo-collapsed .side-panel-area {
+    display: none;
+  }
+  .side-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 49;
+    background: #02061799;
+  }
+  .side-resizer,
+  .input-resizer {
+    display: none;
+  }
+  .app-input {
+    height: clamp(100px, 32%, 200px) !important;
+    min-height: 0;
+    max-height: 50%;
+  }
+  .app:has(.input-textarea:focus) .app-header {
+    display: none;
+  }
+  .app:has(.input-textarea:focus) .app-input {
+    height: 60% !important;
+    max-height: 60%;
+  }
+  .tool-window-canvas {
+    z-index: 60;
+  }
 }
 :deep(.scale-enter-active),
 :deep(.scale-leave-active) {

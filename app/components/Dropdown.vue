@@ -489,4 +489,19 @@ defineExpose({ moveHighlight, selectHighlighted, updateSearch, clearHighlight })
   visibility: hidden;
   pointer-events: none;
 }
+@media (max-width: 768px) {
+  .ui-dropdown-menu {
+    position-anchor: auto !important;
+    position-try-fallbacks: none !important;
+    top: calc(var(--viewport-top, 0px) + 8px) !important;
+    bottom: auto !important;
+    left: calc(var(--viewport-left, 0px) + 8px) !important;
+    right: auto !important;
+    margin: 0 !important;
+    width: calc(var(--viewport-width, 100vw) - 16px) !important;
+    min-width: 0 !important;
+    max-width: calc(var(--viewport-width, 100vw) - 16px) !important;
+    max-height: calc(var(--viewport-height, 100dvh) * 0.6) !important;
+  }
+}
 </style>

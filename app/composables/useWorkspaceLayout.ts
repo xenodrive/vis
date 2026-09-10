@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import type { useFloatingWindows } from './useFloatingWindows';
 import { StorageKeys, storageGet, storageSet } from '../utils/storageKeys';
 
@@ -15,7 +15,35 @@ export function useWorkspaceLayout(
 ) {
   const inputHeight = ref<number | null>(null);
   const sidePanelWidth = ref<number | null>(null);
-  const sidePanelCollapsed = ref(storageGet(StorageKeys.state.sidePanelCollapsed) === 'true');
+  const mobileQuery = window.matchMedia('(max-width: 768px)');
+  const isMobile = ref(mobileQuery.matches);
+  const mobileSideOpen = ref(false);
+  const desktopSideCollapsed = ref(storageGet(StorageKeys.state.sidePanelCollapsed) === 'true');
+  const sidePanelCollapsed = computed({
+    get: () => (isMobile.value ? !mobileSideOpen.value : desktopSideCollapsed.value),
+    set: (value: boolean) => {
+      if (isMobile.value) mobileSideOpen.value = !value;
+      else desktopSideCollapsed.value = value;
+    },
+  });
+  const viewport = window.visualViewport!;
+  function syncViewport() {
+    const root = document.documentElement;
+    root.style.setProperty('--viewport-height', `${viewport.height}px`);
+    root.style.setProperty('--viewport-top', `${viewport.offsetTop}px`);
+    root.style.setProperty('--viewport-left', `${viewport.offsetLeft}px`);
+    root.style.setProperty('--viewport-width', `${viewport.width}px`);
+    void nextTick(syncExtent);
+  }
+  function changeLayout() {
+    isMobile.value = mobileQuery.matches;
+    mobileSideOpen.value = false;
+    void nextTick(syncExtent);
+  }
+  syncViewport();
+  mobileQuery.addEventListener('change', changeLayout);
+  viewport.addEventListener('resize', syncViewport);
+  viewport.addEventListener('scroll', syncViewport);
   let resizing:
     | { axis: 'input' | 'side'; start: number; size: number; min: number; max: number }
     | undefined;
@@ -26,8 +54,12 @@ export function useWorkspaceLayout(
     const header = elements.header.value;
     const input = elements.input.value;
     if (!canvas || !header || !input) return;
-    const top = Math.max(0, header.getBoundingClientRect().bottom);
-    const height = Math.max(0, input.getBoundingClientRect().top - top);
+    const top = isMobile.value
+      ? viewport.offsetTop
+      : Math.max(0, header.getBoundingClientRect().bottom);
+    const height = isMobile.value
+      ? viewport.height
+      : Math.max(0, input.getBoundingClientRect().top - top);
     canvas.style.setProperty('--canvas-top', `${top}px`);
     canvas.style.setProperty('--canvas-height', `${height}px`);
     fw.setExtent(canvas.getBoundingClientRect().width, height);
@@ -38,7 +70,7 @@ export function useWorkspaceLayout(
     for (const el of values) if (el) observer.observe(el);
     void nextTick(syncExtent);
   });
-  watch(sidePanelCollapsed, (value) =>
+  watch(desktopSideCollapsed, (value) =>
     storageSet(StorageKeys.state.sidePanelCollapsed, String(value)),
   );
 
@@ -84,12 +116,16 @@ export function useWorkspaceLayout(
   window.addEventListener('pointerup', end);
   window.addEventListener('resize', syncExtent);
   onBeforeUnmount(() => {
+    mobileQuery.removeEventListener('change', changeLayout);
+    viewport.removeEventListener('resize', syncViewport);
+    viewport.removeEventListener('scroll', syncViewport);
     observer.disconnect();
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', end);
     window.removeEventListener('resize', syncExtent);
   });
   return {
+    isMobile,
     inputHeight,
     sidePanelWidth,
     sidePanelCollapsed,
