@@ -124,18 +124,7 @@
                     @open-file="fileTree.openFile"
                     @show-commit="unavailable('Commit diff')"
                     @show-message-diff="unavailable('Message diff')"
-                  >
-                    <template #pending-inputs="{ files, theme }">
-                      <PendingPrompts
-                        :files="files"
-                        :theme="theme"
-                        :items="state.pendingPrompts.value"
-                        :session-agent="selected?.agent"
-                        :resolve-agent-color="agentColor"
-                        @dismiss="state.dismissPrompt"
-                      />
-                    </template>
-                  </OutputPanel>
+                  />
                 </div>
               </div>
             </div>
@@ -318,7 +307,6 @@ import { useV2FileTree } from './composables/useV2FileTree';
 import { useV2Pty } from './composables/useV2Pty';
 import { useV2GitControls } from './composables/useV2GitControls';
 import { useComposerDraft } from './composables/useComposerDraft';
-import PendingPrompts from './components/v2/PendingPrompts.vue';
 import { useMessages } from './composables/useMessages';
 import { useCredentials } from './composables/useCredentials';
 import { useWorkspaceLayout } from './composables/useWorkspaceLayout';
@@ -559,9 +547,11 @@ const statusText = computed(
       ? `${status.value}...`
       : loading.value
         ? 'Loading session...'
-        : inbox.value.length
-          ? `${inbox.value.length} pending input(s)`
-          : ''),
+        : state.pendingPrompts.value.some((item) => item.status === 'sending')
+          ? 'Sending...'
+          : inbox.value.length
+            ? `${inbox.value.length} pending input(s)`
+            : ''),
 );
 const resolvedTheme = resolveTheme(opencodeTheme, 'dark');
 function agentColor(id?: string) {

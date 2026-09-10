@@ -54,8 +54,6 @@
               />
             </template>
 
-            <slot name="pending-inputs" :files="filesWithBasenames" :theme="theme" />
-
             <FileRefPopup ref="fileRefPopupRef" :files="files" @open-file="handlePopupOpenFile" />
           </div>
         </div>
