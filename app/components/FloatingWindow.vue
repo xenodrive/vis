@@ -598,6 +598,22 @@ function onResizeEnd(e: PointerEvent) {
     flex-shrink: 0;
   }
 }
+@media (max-width: 768px) {
+  .floating-window {
+    --term-font-size: 11px;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+  }
+  .floating-window-titlebar {
+    font-size: 10px;
+    height: 24px;
+    min-height: 24px;
+    flex-shrink: 0;
+  }
+  .close-btn {
+    min-height: 24px;
+  }
+}
 
 .floating-window-titlebar .title {
   white-space: nowrap;
