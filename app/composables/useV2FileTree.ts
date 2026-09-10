@@ -29,6 +29,7 @@ export function useV2FileTree(
   const version = ref(0);
   const files = ref<string[]>([]);
   const scanning = ref(false);
+  const gitLoading = ref(false);
   const indexNote = ref('');
   const scope = computed(() => state.selected.value?.location);
   const pending = new Set<string>();
@@ -99,6 +100,7 @@ export function useV2FileTree(
     if (!location) return;
     const current = generation;
     const request = ++gitRevision;
+    gitLoading.value = true;
     try {
       const [result, snapshot, counts] = await Promise.all([
         state.readVcs(location, controller.signal),
@@ -145,6 +147,8 @@ export function useV2FileTree(
         gitStatus.value = {};
         diffStats.value = null;
       }
+    } finally {
+      if (current === generation && request === gitRevision) gitLoading.value = false;
     }
   }
 
@@ -227,6 +231,7 @@ export function useV2FileTree(
     publishTimer = undefined;
     files.value = [];
     scanning.value = false;
+    gitLoading.value = false;
     indexNote.value = '';
     for (const read of reads.values()) read.abort();
     reads.clear();
@@ -351,7 +356,7 @@ export function useV2FileTree(
     nodes,
     expanded,
     selectedPath,
-    loading: computed(() => loading.value || scanning.value),
+    loading: computed(() => loading.value || scanning.value || gitLoading.value),
     error: computed(() =>
       [error.value, gitError.value, indexNote.value].filter(Boolean).join('\n'),
     ),

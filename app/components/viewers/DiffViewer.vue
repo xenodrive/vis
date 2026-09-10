@@ -36,6 +36,8 @@
         :gutter-mode="diffGutterMode"
         :lang="lang"
         :theme="theme"
+        :loading="loading"
+        :show-loading="showLoading"
         @rendered="emit('rendered')"
       >
         <template v-if="$slots['hunk-header']" #hunk-header="scope">
@@ -64,6 +66,8 @@ import ContentViewer from './ContentViewer.vue';
 type PrimaryMode = 'original' | 'modified' | 'diff';
 
 const props = defineProps<{
+  loading?: boolean;
+  showLoading?: boolean;
   path?: string;
   diffCode?: string;
   diffAfter?: string;

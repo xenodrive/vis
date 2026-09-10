@@ -12,23 +12,25 @@
         {{ basename(tab.file) }}
       </button>
     </div>
-    <div class="viewer-body">
-      <div v-if="showLoading" class="viewer-loading" role="status" aria-label="Loading diff">
-        <Icon icon="mdi:loading" />
-      </div>
-      <div v-else-if="hunks.length" class="diff-document">
-        <CodeContent v-if="preamble" :html="preamble" variant="diff" />
-        <section v-for="hunk in hunks" :key="hunk.index">
-          <div class="hunk-header">
-            <div class="hunk-controls">
-              <slot name="hunk-header" :index="hunk.index" :header="hunk.header" />
+    <div class="viewer-viewport" :aria-busy="busy">
+      <div class="viewer-body">
+        <div v-if="hunks.length" class="diff-document">
+          <CodeContent v-if="preamble" :html="preamble" variant="diff" />
+          <section v-for="hunk in hunks" :key="hunk.index">
+            <div class="hunk-header">
+              <div class="hunk-controls">
+                <slot name="hunk-header" :index="hunk.index" :header="hunk.header" />
+              </div>
+              <span class="hunk-title">{{ hunk.header }}</span>
             </div>
-            <span class="hunk-title">{{ hunk.header }}</span>
-          </div>
-          <CodeContent :html="hunk.html" variant="diff" />
-        </section>
+            <CodeContent :html="hunk.html" variant="diff" />
+          </section>
+        </div>
+        <CodeContent v-else :html="renderedHtml || ''" variant="diff" />
       </div>
-      <CodeContent v-else :html="renderedHtml || ''" variant="diff" />
+      <div v-if="showLoading" class="viewer-loading" role="status" aria-label="Loading diff">
+        <span class="viewer-spinner" aria-hidden="true"></span>
+      </div>
     </div>
   </div>
 </template>
@@ -36,11 +38,12 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue';
 import CodeContent from '../CodeContent.vue';
-import { Icon } from '@iconify/vue';
 import { type CodeRenderParams, useCodeRender } from '../../utils/useCodeRender';
 import { guessLanguageFromPath } from '../ToolWindow/utils';
 
 const props = defineProps<{
+  loading?: boolean;
+  showLoading?: boolean;
   path?: string;
   diffCode?: string;
   diffAfter?: string;
@@ -94,7 +97,7 @@ const renderParams = computed<CodeRenderParams | null>(() => {
   };
 });
 
-const { html: renderedHtml, hunks, preamble } = useCodeRender(renderParams);
+const { html: renderedHtml, hunks, preamble, loading: rendering } = useCodeRender(renderParams);
 const gutterWidth = computed(() => {
   let maximum = 1;
   for (const hunk of hunks.value) {
@@ -117,10 +120,8 @@ watch(
   { immediate: true },
 );
 
-const showLoading = computed(() => {
-  if (renderedHtml.value) return false;
-  return !!renderParams.value;
-});
+const busy = computed(() => Boolean(props.loading || rendering.value));
+const showLoading = computed(() => props.showLoading !== false && busy.value);
 
 function basename(filepath: string) {
   return filepath.split('/').pop() ?? filepath;
@@ -202,6 +203,13 @@ function basename(filepath: string) {
   min-height: 0;
   overflow: auto;
 }
+.viewer-viewport {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .diff-document {
   display: grid;
   min-width: 100%;
@@ -215,6 +223,8 @@ function basename(filepath: string) {
 }
 
 .viewer-loading {
+  pointer-events: none;
+  z-index: 3;
   position: absolute;
   inset: 0;
   display: flex;
@@ -225,7 +235,13 @@ function basename(filepath: string) {
   font-size: 13px;
   user-select: none;
 }
-.viewer-loading svg {
+.viewer-spinner {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid #475569;
+  border-top-color: #e2e8f0;
+  border-radius: 50%;
   animation: diff-spin 1s linear infinite;
 }
 @keyframes diff-spin {

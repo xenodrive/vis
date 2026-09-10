@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import DiffViewer from '../viewers/DiffViewer.vue';
-import { Icon } from '@iconify/vue';
 import {
   displayHunk,
   type GitPreview,
@@ -20,6 +19,7 @@ const props = defineProps<{
   selectable?: boolean;
   selection?: 'all' | number[];
   disabled?: boolean;
+  showLoading?: boolean;
 }>();
 const emit = defineEmits<{
   loading: [value: boolean];
@@ -106,13 +106,6 @@ onBeforeUnmount(cancel);
     <div class="git-diff-heading">
       {{ file.file }}
     </div>
-    <Icon
-      v-if="loading"
-      icon="mdi:loading"
-      class="git-diff-spinner"
-      aria-label="Loading diff"
-      role="status"
-    />
     <p v-if="error" class="git-diff-notice" role="alert">
       {{ errorText }}
       <button type="button" :disabled="loading" @click="load()">Retry diff</button>
@@ -122,15 +115,17 @@ onBeforeUnmount(cancel);
         Select the whole file.</template
       >
     </p>
-    <template v-else-if="preview">
+    <template v-else>
       <DiffViewer
         :path="file.file"
         :diff-code="source?.before"
         :diff-after="source?.after"
         :diff-patch="patch"
+        :loading="loading"
+        :show-loading="showLoading"
         theme="github-dark"
       >
-        <template v-if="selectable && preview.selectable" #hunk-header="{ index }">
+        <template v-if="selectable && preview?.selectable" #hunk-header="{ index }">
           <label class="git-hunk-selection">
             <input
               type="checkbox"
@@ -162,23 +157,8 @@ onBeforeUnmount(cancel);
   flex: 1;
   height: auto;
 }
-.git-diff-spinner {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 16px;
-  height: 16px;
-  z-index: 3;
-  animation: git-diff-spin 1s linear infinite;
-}
-@keyframes git-diff-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .git-diff-heading {
   flex-shrink: 0;
-  padding-right: 36px;
   padding: 10px;
   overflow-wrap: anywhere;
   font-size: 12px;

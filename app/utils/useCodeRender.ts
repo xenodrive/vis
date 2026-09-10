@@ -20,6 +20,7 @@ export type CodeRenderResult = {
   hunks: Ref<RenderedHunk[]>;
   preamble: Ref<string>;
   error: Ref<string>;
+  loading: Ref<boolean>;
 };
 
 export function useCodeRender(params: WatchSource<CodeRenderParams | null>): CodeRenderResult {
@@ -27,6 +28,7 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
   const hunks = ref<RenderedHunk[]>([]);
   const preamble = ref('');
   const error = ref('');
+  const loading = ref(false);
   let requestId = 0;
 
   watch(
@@ -34,6 +36,7 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
     (p) => {
       requestId += 1;
       const current = requestId;
+      loading.value = Boolean(p);
 
       if (!p) {
         html.value = '';
@@ -63,10 +66,12 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
           hunks.value = result.hunks ?? [];
           preamble.value = result.preamble ?? '';
           error.value = '';
+          loading.value = false;
         })
         .catch((err) => {
           if (current !== requestId) return;
           error.value = err instanceof Error ? err.message : 'Render failed';
+          loading.value = false;
         });
     },
     { immediate: true },
@@ -76,5 +81,5 @@ export function useCodeRender(params: WatchSource<CodeRenderParams | null>): Cod
     requestId += 1;
   });
 
-  return { html, hunks, preamble, error };
+  return { html, hunks, preamble, error, loading };
 }

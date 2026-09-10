@@ -28,7 +28,14 @@
             </button>
           </template>
           <DropdownSearch v-model="branchSearchQuery" placeholder="Search branches" />
-          <div v-if="branchListLoading" class="tree-branch-menu-empty">Loading branches...</div>
+          <div
+            v-if="branchListLoading"
+            class="tree-branch-menu-empty"
+            role="status"
+            aria-label="Loading branches"
+          >
+            <span class="tree-loading-spinner" aria-hidden="true"></span>
+          </div>
           <template v-else>
             <DropdownLabel v-if="filteredLocalBranches.length > 0">Local</DropdownLabel>
             <DropdownItem
@@ -301,63 +308,67 @@
         </button>
       </div>
     </div>
-    <div
-      v-if="!visibleRows.length && !isLoading"
-      class="tree-empty"
-      @click="emit('select-file', '')"
-    >
-      No files.
-    </div>
-    <div v-else class="tree-scroll" @click="onTreeScrollClick">
+    <div class="tree-content" :aria-busy="isLoading">
       <div
-        v-for="row in visibleRows"
-        :key="row.node.path"
-        class="tree-row"
-        :class="[
-          {
-            'is-directory': row.node.type === 'directory',
-            'is-file': row.node.type !== 'directory',
-            'is-selected': selectedPath === row.node.path,
-            'is-ignored': row.node.ignored,
-            'is-deleted':
-              row.node.type !== 'directory' && displayStatus(row.node.path)?.code === 'D',
-            'has-status': hasAnyStatus(row.node.path),
-          },
-          rowStatusClass(row.node.path),
-        ]"
-        :style="{ '--indent': String(row.depth) }"
-        @click="onRowClick(row, $event)"
-        @dblclick="onRowDoubleClick(row)"
+        v-if="!visibleRows.length && !isLoading"
+        class="tree-empty"
+        @click="emit('select-file', '')"
       >
-        <button
-          v-if="row.node.type === 'directory'"
-          type="button"
-          class="tree-toggle"
-          :aria-label="isExpanded(row.node.path) ? 'Collapse directory' : 'Expand directory'"
-          @click.stop="toggleDirectory(row.node.path)"
-        >
-          <Icon
-            :icon="isExpanded(row.node.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
-            :width="14"
-            :height="14"
-          />
-        </button>
-        <span v-else class="tree-toggle tree-toggle-spacer"></span>
-        <span class="tree-icon">{{ row.node.type === 'directory' ? '📁' : '📄' }}</span>
-        <span class="tree-name">{{ row.node.name }}</span>
-        <button
-          v-if="displayStatus(row.node.path) && row.node.type !== 'directory'"
-          type="button"
-          class="tree-status tree-status-button"
-          :class="statusClass(displayStatus(row.node.path))"
-          @click.stop="onStatusClick(row.node.path)"
-          @dblclick.stop
-        >
-          {{ statusLabel(displayStatus(row.node.path)?.code) }}
-        </button>
+        No files.
       </div>
-      <div v-if="isLoading" class="tree-loading">Loading...</div>
-      <div v-if="error" class="tree-error">{{ error }}</div>
+      <div v-else class="tree-scroll" @click="onTreeScrollClick">
+        <div
+          v-for="row in visibleRows"
+          :key="row.node.path"
+          class="tree-row"
+          :class="[
+            {
+              'is-directory': row.node.type === 'directory',
+              'is-file': row.node.type !== 'directory',
+              'is-selected': selectedPath === row.node.path,
+              'is-ignored': row.node.ignored,
+              'is-deleted':
+                row.node.type !== 'directory' && displayStatus(row.node.path)?.code === 'D',
+              'has-status': hasAnyStatus(row.node.path),
+            },
+            rowStatusClass(row.node.path),
+          ]"
+          :style="{ '--indent': String(row.depth) }"
+          @click="onRowClick(row, $event)"
+          @dblclick="onRowDoubleClick(row)"
+        >
+          <button
+            v-if="row.node.type === 'directory'"
+            type="button"
+            class="tree-toggle"
+            :aria-label="isExpanded(row.node.path) ? 'Collapse directory' : 'Expand directory'"
+            @click.stop="toggleDirectory(row.node.path)"
+          >
+            <Icon
+              :icon="isExpanded(row.node.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+              :width="14"
+              :height="14"
+            />
+          </button>
+          <span v-else class="tree-toggle tree-toggle-spacer"></span>
+          <span class="tree-icon">{{ row.node.type === 'directory' ? '📁' : '📄' }}</span>
+          <span class="tree-name">{{ row.node.name }}</span>
+          <button
+            v-if="displayStatus(row.node.path) && row.node.type !== 'directory'"
+            type="button"
+            class="tree-status tree-status-button"
+            :class="statusClass(displayStatus(row.node.path))"
+            @click.stop="onStatusClick(row.node.path)"
+            @dblclick.stop
+          >
+            {{ statusLabel(displayStatus(row.node.path)?.code) }}
+          </button>
+        </div>
+        <div v-if="error" class="tree-error">{{ error }}</div>
+      </div>
+      <div v-if="isLoading" class="tree-loading-overlay">
+        <span class="tree-loading-spinner" role="status" aria-label="Loading files"></span>
+      </div>
     </div>
     <div class="tree-statusbar">
       <div class="tree-statusbar-left"></div>
@@ -1267,6 +1278,20 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   color: rgba(148, 163, 184, 0.9);
   font-size: 12px;
 }
+.tree-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.tree-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
 
 .tree-scroll {
   flex: 1;
@@ -1501,11 +1526,26 @@ function onRowDoubleClick(row: { node: TreeNode }) {
   color: #4ec9b0;
 }
 
-.tree-loading,
 .tree-error {
   margin-top: 8px;
   font-size: 11px;
   color: #94a3b8;
+}
+.tree-loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  border: 2px solid #475569;
+  border-top-color: #e2e8f0;
+  border-radius: 50%;
+  animation: tree-loading-spin 1s linear infinite;
+}
+@keyframes tree-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .tree-error {

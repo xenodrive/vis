@@ -8,6 +8,7 @@ const props = defineProps<{
   api: GitActions;
   snapshot: GitSnapshot;
   mode: 'staged' | 'changes';
+  showLoading?: boolean;
 }>();
 const index = ref(0);
 const active = computed(() => props.files[index.value]);
@@ -40,11 +41,17 @@ function mode(file: GitPatch): GitDiffMode {
           :api="api"
           :snapshot="snapshot"
           :mode="mode(active)"
+          :show-loading="showLoading"
           @loading="loading = $event"
       /></KeepAlive>
     </div>
     <div class="diff-status" role="status">
-      <Icon v-if="loading" icon="mdi:loading" class="diff-spinner" aria-label="Loading diff" />
+      <Icon
+        v-if="loading && showLoading !== false"
+        icon="mdi:loading"
+        class="diff-spinner"
+        aria-label="Loading diff"
+      />
     </div>
   </div>
 </template>
