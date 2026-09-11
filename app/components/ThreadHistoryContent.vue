@@ -89,7 +89,7 @@
 <script setup lang="ts">
 import MessageViewer from './MessageViewer.vue';
 import { useFloatingWindow } from '../composables/useFloatingWindow';
-import type { QuestionInfo, ReasoningPart, ToolPart } from '../types/sse';
+import type { QuestionInfo, ReasoningPart, ToolPart } from '../types/message';
 
 type QuestionHistoryEntry = {
   key: string;

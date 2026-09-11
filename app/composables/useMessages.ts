@@ -6,16 +6,8 @@ import type {
   MessageStatus,
   MessageUsage,
 } from '../types/message';
-import type {
-  MessageInfo,
-  MessagePart,
-  MessagePartDeltaPacket,
-  MessagePartUpdatedPacket,
-  MessageUpdatedPacket,
-} from '../types/sse';
+import type { MessageInfo, MessagePart } from '../types/message';
 import { diffSourceFromFullPatch } from '../utils/diffSources';
-import type { SessionScope } from './useGlobalEvents';
-import { useDeltaAccumulator } from './useDeltaAccumulator';
 
 type MessageEntry = {
   info?: MessageInfo;
@@ -39,23 +31,6 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function isMessageInfo(value: unknown): value is MessageInfo {
-  const rec = toRecord(value);
-  if (!rec) return false;
-  if (!asString(rec.id)) return false;
-  if (!asString(rec.sessionID)) return false;
-  return rec.role === 'user' || rec.role === 'assistant';
-}
-
-function isMessagePart(value: unknown): value is MessagePart {
-  const rec = toRecord(value);
-  if (!rec) return false;
-  if (!asString(rec.id)) return false;
-  if (!asString(rec.sessionID)) return false;
-  if (!asString(rec.messageID)) return false;
-  return typeof rec.type === 'string';
 }
 
 function normalizeTokens(value: unknown): MessageUsage['tokens'] | undefined {
@@ -127,7 +102,6 @@ function byTimeThenId(a: MessageInfo, b: MessageInfo): number {
 }
 
 // Module-level singleton state
-const acc = useDeltaAccumulator();
 const messages = shallowRef(new Map<string, ShallowRef<MessageEntry>>());
 const parts = new Map<string, ShallowRef<MessagePart>>();
 
@@ -186,53 +160,6 @@ function ensureMessage(id: string, notifyCollection = true): ShallowRef<MessageE
 
 function partLookupKey(messageId: string, partId: string): string {
   return `${messageId}:${partId}`;
-}
-
-function updateMessage(info: MessageInfo, notifyCollection = true) {
-  const messageRef = ensureMessage(info.id, notifyCollection);
-  messageRef.value.info = info;
-  triggerRef(messageRef);
-}
-
-function updatePart(part: MessagePart, notifyCollection = true) {
-  const key = partLookupKey(part.messageID, part.id);
-  const existing = parts.get(key);
-  if (existing) {
-    existing.value = part;
-    triggerRef(existing);
-    return;
-  }
-  const partRef = shallowRef(part);
-  parts.set(key, partRef);
-  const messageRef = ensureMessage(part.messageID, notifyCollection);
-  messageRef.value.parts.add(partRef);
-  triggerRef(messageRef);
-}
-
-const unsubs: Array<() => void> = [];
-
-function bindScope(scope: SessionScope) {
-  for (const unsub of unsubs) unsub();
-  unsubs.length = 0;
-
-  unsubs.push(
-    scope.on('message.part.updated', (packet: MessagePartUpdatedPacket) => {
-      updatePart(packet.part);
-    }),
-    scope.on('message.part.delta', (packet: MessagePartDeltaPacket) => {
-      const accumulated = acc.getMessage(packet.messageID);
-      const accPart = accumulated?.parts.get(packet.partID);
-      if (!accPart) return;
-      const key = partLookupKey(packet.messageID, packet.partID);
-      const partRef = parts.get(key);
-      if (!partRef) return;
-      partRef.value = accPart;
-      triggerRef(partRef);
-    }),
-    scope.on('message.updated', (packet: MessageUpdatedPacket) => {
-      updateMessage(packet.info);
-    }),
-  );
 }
 
 function get(id: string): MessageInfo | undefined {
@@ -385,49 +312,6 @@ function getFinalAnswer(rootId: string): MessageInfo | undefined {
   return assistants[assistants.length - 1];
 }
 
-function loadHistory(entries: unknown[]) {
-  let collectionChanged = false;
-  for (const entry of entries) {
-    const rec = toRecord(entry);
-    if (!rec) continue;
-    const info = rec.info;
-    const partsList = rec.parts;
-    if (!isMessageInfo(info)) continue;
-    const accumulated = acc.getMessage(info.id);
-    const hasMessage = messages.value.has(info.id);
-    const messageRef = ensureMessage(info.id, false);
-    if (!hasMessage) collectionChanged = true;
-    if (!messageRef.value.info) {
-      messageRef.value.info = accumulated?.info ?? info;
-      triggerRef(messageRef);
-    }
-    if (!Array.isArray(partsList)) continue;
-    let addedPart = false;
-    for (const item of partsList) {
-      if (!isMessagePart(item)) continue;
-      const merged = accumulated?.parts.get(item.id) ?? item;
-      const key = partLookupKey(merged.messageID, merged.id);
-      if (parts.has(key)) continue;
-      const partRef = shallowRef(merged);
-      parts.set(key, partRef);
-      messageRef.value.parts.add(partRef);
-      addedPart = true;
-    }
-    if (accumulated) {
-      for (const [partId, accPart] of accumulated.parts) {
-        const key = partLookupKey(accPart.messageID, partId);
-        if (parts.has(key)) continue;
-        const partRef = shallowRef(accPart);
-        parts.set(key, partRef);
-        messageRef.value.parts.add(partRef);
-        addedPart = true;
-      }
-    }
-    if (addedPart) triggerRef(messageRef);
-  }
-  if (collectionChanged) triggerRef(messages);
-}
-
 function reset() {
   messages.value.clear();
   parts.clear();
@@ -458,10 +342,6 @@ function setPresentation(entries: Array<{ info: MessageInfo; parts: MessagePart[
   triggerRef(messages);
 }
 
-function dispose() {
-  for (const unsub of unsubs) unsub();
-}
-
 export function useMessages() {
   return {
     messages: readonly(messages),
@@ -485,12 +365,7 @@ export function useMessages() {
     getChildren,
     getThread,
     getFinalAnswer,
-    updateMessage,
-    updatePart,
-    loadHistory,
     setPresentation,
     reset,
-    dispose,
-    bindScope,
   };
 }

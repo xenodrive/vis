@@ -225,7 +225,7 @@
           </div>
         </div>
         <form v-if="status === 'disconnected'" class="app-login-form" @submit.prevent="login">
-          <p class="app-loading-title">Connect to OpenCode V2 Server</p>
+          <p class="app-loading-title">Connect to OpenCode Server</p>
           <div class="app-login-fields">
             <input
               value="opencode"
@@ -258,7 +258,7 @@
         <div v-else>
           <div class="app-loading-spinner" aria-hidden="true"></div>
           <p class="app-loading-title">Loading session data...</p>
-          <p class="app-loading-message">Connecting to OpenCode V2...</p>
+          <p class="app-loading-message">Connecting to OpenCode...</p>
           <div class="app-loading-actions">
             <button
               type="button"
@@ -300,7 +300,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TopPanel, { type TopPanelWorktree } from './components/TopPanel.vue';
-import SessionPicker from './components/v2/SessionPicker.vue';
+import SessionPicker from './components/SessionPicker.vue';
 import SidePanel from './components/SidePanel.vue';
 import OutputPanel from './components/OutputPanel.vue';
 import InputPanel from './components/InputPanel.vue';
@@ -308,29 +308,29 @@ import FloatingWindow from './components/FloatingWindow.vue';
 import ProjectPicker from './components/ProjectPicker.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import Welcome from './components/Welcome.vue';
-import PendingInputs from './components/v2/PendingInputs.vue';
-import GitChangesDialog from './components/v2/GitChangesDialog.vue';
-import { createGitActions, type GitAction } from './v2/git';
-import { useV2 } from './composables/useV2';
+import PendingInputs from './components/PendingInputs.vue';
+import GitChangesDialog from './components/git/GitChangesDialog.vue';
+import { createGitActions, type GitAction } from './utils/git/actions';
+import { useSessionState } from './composables/useSessionState';
 import { useSettings } from './composables/useSettings';
-import { useV2Windows } from './composables/useV2Windows';
-import { useV2FileTree } from './composables/useV2FileTree';
-import { useV2Pty } from './composables/useV2Pty';
-import { useV2GitControls } from './composables/useV2GitControls';
+import { useSessionWindows } from './composables/useSessionWindows';
+import { useFileTree } from './composables/useFileTree';
+import { useTerminalWindows } from './composables/useTerminalWindows';
+import { useGitControls } from './composables/useGitControls';
 import { useComposerDraft } from './composables/useComposerDraft';
 import { useMessages } from './composables/useMessages';
 import { useCredentials } from './composables/useCredentials';
 import { useWorkspaceLayout } from './composables/useWorkspaceLayout';
 import { useAutoScroller } from './composables/useAutoScroller';
-import { presentTranscript } from './v2/presentation';
-import { resolveProjectColorHex } from './utils/stateBuilder';
+import { presentTranscript } from './utils/messagePresentation';
+import { resolveProjectColorHex } from './utils/projects';
 import { opencodeTheme, resolveAgentColor, resolveTheme } from './utils/theme';
 import { randomUUID } from './utils/uuid';
 import { selectCommitModel } from './utils/commitModel';
 import type { MessageTokens } from './types/message';
 import type { ModelRef } from '@opencode-ai/client';
 
-const state = useV2();
+const state = useSessionState();
 const {
   ready,
   status,
@@ -351,7 +351,7 @@ const {
   messageCursor,
   inbox,
 } = state;
-const windows = useV2Windows(state);
+const windows = useSessionWindows(state);
 const activity = windows.activity;
 const commandOptions = computed(() => [
   { name: 'shell', description: 'Open a terminal and optionally run a command' },
@@ -415,7 +415,7 @@ watch(
   { flush: 'sync' },
 );
 const { fw } = windows;
-const pty = useV2Pty(state, fw);
+const pty = useTerminalWindows(state, fw);
 const gitActions = createGitActions(
   (command, options) => state.runGitCommand(command, 'Git inspection', options),
   async (command, title) => {
@@ -423,7 +423,7 @@ const gitActions = createGitActions(
     return 0;
   },
 );
-const fileTree = useV2FileTree(state, fw, gitActions);
+const fileTree = useFileTree(state, fw, gitActions);
 const gitAction = ref<GitAction>();
 const { commitModel } = useSettings();
 const resolvedCommitModel = computed(
@@ -450,7 +450,7 @@ watch(
   },
   { flush: 'sync' },
 );
-const gitControls = useV2GitControls(state, fileTree.reload);
+const gitControls = useGitControls(state, fileTree.reload);
 watch(fileTree.branch, (branch) => {
   if (branch) void gitControls.reload();
 });
@@ -691,7 +691,7 @@ function focusInput() {
   inputPanelRef.value?.focus();
 }
 function unavailable(feature: string) {
-  error.value = `${feature} is not yet available in V2 vis.`;
+  error.value = `${feature} is not yet available in vis.`;
 }
 async function selectNotification() {
   const queue = notificationSessions.value.filter((item) => item.sessionId !== 'global');

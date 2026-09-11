@@ -95,7 +95,7 @@ import type {
   MessageTokens,
   ModelMeta,
 } from '../types/message';
-import type { MessageInfo } from '../types/sse';
+import type { MessageInfo } from '../types/message';
 
 const msg = useMessages();
 

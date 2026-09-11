@@ -1,6 +1,6 @@
 import { onScopeDispose, ref, watch } from 'vue';
 import type { Ref } from 'vue';
-import type { MessageInfo } from '../types/sse';
+import type { MessageInfo } from '../types/message';
 
 const SAFETY_TIMEOUT_MS = 5_000;
 

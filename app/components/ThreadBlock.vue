@@ -124,19 +124,8 @@ import type {
   ModelMeta,
   ThreadTarget as ThreadTargetType,
 } from '../types/message';
-import type { MessageInfo, QuestionInfo, ToolPart } from '../types/sse';
+import type { MessageInfo, QuestionInfo, ToolPart } from '../types/message';
 import { formatElapsedTime, formatMessageError, formatMessageTime } from '../utils/formatters';
-
-const HISTORY_TOOL_NAMES = new Set([
-  'bash',
-  'write',
-  'edit',
-  'multiedit',
-  'apply_patch',
-  'shell',
-  'patch',
-  'subagent',
-]);
 
 const props = defineProps<{
   historyActionsDisabled?: boolean;
@@ -292,7 +281,6 @@ function getHistoryEntries(root: MessageInfo): HistoryEntry[] {
         entries.push({ kind: 'question', part, time: getToolPartTime(part) });
         continue;
       }
-      if (!part.v2 && !HISTORY_TOOL_NAMES.has(part.tool)) continue;
       entries.push({ kind: 'tool', part, time: getToolPartTime(part) });
     }
   }

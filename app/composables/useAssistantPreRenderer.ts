@@ -1,6 +1,6 @@
 import { reactive, watchEffect } from 'vue';
 import type { Ref } from 'vue';
-import type { MessageInfo } from '../types/sse';
+import type { MessageInfo } from '../types/message';
 import { renderWorkerHtml } from '../utils/workerRenderer';
 
 type UseAssistantPreRendererOptions = {

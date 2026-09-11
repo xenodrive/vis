@@ -51,14 +51,10 @@
 <script setup lang="ts">
 import { toRefs } from 'vue';
 import { Icon } from '@iconify/vue';
-import type { BranchEntry } from '../composables/useFileTree';
-import type { GitAction } from '../v2/git';
-import TreeView, {
-  type GitBranchInfo,
-  type GitDiffStats,
-  type GitFileStatus,
-  type TreeNode,
-} from './TreeView.vue';
+import type { BranchEntry, GitBranchInfo, GitDiffStats, GitFileStatus } from '../types/git';
+import type { TreeNode } from '../types/files';
+import type { GitAction } from '../utils/git/actions';
+import TreeView from './TreeView.vue';
 
 const props = defineProps<{
   collapsed: boolean;

@@ -162,7 +162,7 @@ MessageViewer
 | `allowModeToggle` | Show Rendered / Source tabs when applicable      |
 
 Used by: `ThreadBlock`, `ThreadHistoryContent`, `Welcome`,
-`ToolWindow/Question`, `ToolWindow/Subagent`, `ToolWindow/Reasoning`
+`ToolWindow/Subagent`, `ToolWindow/Reasoning`
 
 ---
 

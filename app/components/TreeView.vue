@@ -389,51 +389,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
-import type { BranchEntry } from '../composables/useFileTree';
+import type {
+  BranchEntry,
+  GitBranchInfo,
+  GitDiffStats,
+  GitDiffStatsEntry,
+  GitFileStatus,
+  GitStatusCode,
+} from '../types/git';
+import type { TreeNode } from '../types/files';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
 import DropdownLabel from './Dropdown/Label.vue';
 import DropdownSearch from './Dropdown/Search.vue';
-import type { GitAction } from '../v2/git';
+import type { GitAction } from '../utils/git/actions';
 import { opencodeTheme, resolveTheme } from '../utils/theme';
-
-export type TreeNode = {
-  name: string;
-  path: string;
-  type: 'directory' | 'file';
-  children?: TreeNode[];
-  ignored?: boolean;
-  synthetic?: boolean;
-};
-
-export type GitStatusCode = '' | 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | '?';
-
-export type GitFileStatus = {
-  path: string;
-  index: GitStatusCode;
-  worktree: GitStatusCode;
-  origPath?: string;
-};
-
-export type GitBranchInfo = {
-  branch: string;
-  upstream?: string;
-  ahead: number;
-  behind: number;
-  headShort?: string;
-};
-
-export type GitDiffStatsEntry = {
-  untracked?: number;
-  additions: number;
-  deletions: number;
-};
-
-export type GitDiffStats = {
-  staged: GitDiffStatsEntry;
-  unstaged: GitDiffStatsEntry;
-  changes: GitDiffStatsEntry;
-};
 
 type TreeViewMode = 'staged' | 'changes' | 'all';
 

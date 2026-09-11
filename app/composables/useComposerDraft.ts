@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue';
-import { createDraftStore, type ComposerDraft } from '../v2/drafts';
+import { createDraftStore, type ComposerDraft } from '../utils/composerDrafts';
 import { StorageKeys, storageKey } from '../utils/storageKeys';
 import { randomUUID } from '../utils/uuid';
 
