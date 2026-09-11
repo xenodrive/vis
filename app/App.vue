@@ -47,7 +47,9 @@
           @logout="logout"
           @dropdown-closed="focusInput"
         >
-          <template #selection><SessionPicker ref="sessionPickerRef" :state="state" /></template>
+          <template #selection
+            ><SessionPicker ref="sessionPickerRef" :state="state" :mobile="isMobile"
+          /></template>
         </TopPanel>
       </header>
       <div

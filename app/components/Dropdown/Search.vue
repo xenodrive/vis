@@ -2,7 +2,7 @@
   <div class="ui-dropdown-search" @click.stop>
     <slot name="before" />
     <input
-      autofocus
+      :autofocus="autoFocus"
       :value="modelValue"
       type="text"
       :placeholder="placeholder"
@@ -19,10 +19,14 @@
 import { inject } from 'vue';
 import type { DropdownAPI } from '../Dropdown.vue';
 
-defineProps<{
-  modelValue: string;
-  placeholder?: string;
-}>();
+withDefaults(
+  defineProps<{
+    modelValue: string;
+    placeholder?: string;
+    autoFocus?: boolean;
+  }>(),
+  { autoFocus: true },
+);
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];

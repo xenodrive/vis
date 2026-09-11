@@ -119,7 +119,12 @@
       @select="onSessionSelect"
     >
       <div class="picker-panel">
-        <DropdownSearch v-model="search" class="picker-search" placeholder="Search sessions…">
+        <DropdownSearch
+          v-model="search"
+          :auto-focus="!mobile"
+          class="picker-search"
+          placeholder="Search sessions…"
+        >
           <template #before><Icon icon="lucide:search" width="14" /></template>
         </DropdownSearch>
         <div class="picker-list">
@@ -194,7 +199,7 @@ import { errorMessage } from '../../v2/connection';
 import { resolveProjectColorHex } from '../../utils/stateBuilder';
 import { useFavoriteProjects } from '../../composables/useFavoriteProjects';
 
-const props = defineProps<{ state: ReturnType<typeof useV2> }>();
+const props = defineProps<{ state: ReturnType<typeof useV2>; mobile?: boolean }>();
 const { isFavorite, toggleFavorite } = useFavoriteProjects();
 const projectOpen = ref(false);
 const settingsOpen = ref(false);

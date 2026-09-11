@@ -498,6 +498,7 @@ defineExpose({ moveHighlight, selectHighlighted, updateSearch, clearHighlight })
     left: calc(var(--viewport-left, 0px) + 8px) !important;
     right: auto !important;
     margin: 0 !important;
+    translate: none !important;
     width: calc(var(--viewport-width, 100vw) - 16px) !important;
     min-width: 0 !important;
     max-width: calc(var(--viewport-width, 100vw) - 16px) !important;
