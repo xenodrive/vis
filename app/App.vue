@@ -147,7 +147,7 @@
             <div class="input-resizer" @pointerdown="startInputResize"></div>
             <InputPanel
               ref="inputPanelRef"
-              :disabled="status !== 'connected' || busy"
+              :disabled="status !== 'connected' || busy || loading"
               :can-send="canSend"
               :agent-options="agentOptions"
               :has-agent-options="agentOptions.length > 0"
@@ -368,7 +368,7 @@ const composerModel = computed(() => {
   return selected.value?.model ?? agentModel ?? state.defaultModel.value;
 });
 function selectAgent(agent: string) {
-  if (running.value || busy.value) return;
+  if (running.value || busy.value || loading.value) return;
   updateComposerSelection(() => {
     pendingAgent.value = agent;
     pendingModel.value = undefined;
@@ -532,6 +532,7 @@ const canSend = computed(
     !!selected.value &&
     status.value === 'connected' &&
     !busy.value &&
+    !loading.value &&
     (!!messageInput.value.trim() || attachments.value.length > 0),
 );
 const currentProject = computed(() =>
@@ -709,7 +710,7 @@ async function selectNotification() {
   if (key) fw.bringToFront(key);
 }
 function selectModel(id: string) {
-  if (running.value || busy.value) return;
+  if (running.value || busy.value || loading.value) return;
   const model = models.value.find((model) => `${model.providerID}/${model.id}` === id);
   if (model) {
     updateComposerSelection(() => {
@@ -718,7 +719,7 @@ function selectModel(id: string) {
   }
 }
 function selectVariant(variant: string | undefined) {
-  if (running.value || busy.value) return;
+  if (running.value || busy.value || loading.value) return;
   const model = composerModel.value;
   if (model) {
     updateComposerSelection(() => {
@@ -738,12 +739,14 @@ async function applyHistoryEntry(entry: {
   if (entry.variant !== undefined) await selectVariant(entry.variant);
 }
 async function send() {
+  if (!canSend.value) return;
   const id = selected.value?.id;
   const text = messageInput.value;
   const sentDraft = composerDraft.snapshot();
   const sentAttachments = [...attachments.value];
-  const agent = pendingAgent.value;
-  const model = pendingModel.value ?? (agent ? composerModel.value : undefined);
+  // Persist the displayed selection before starting an idle session.
+  const agent = running.value ? undefined : composerAgent.value;
+  const model = running.value ? undefined : composerModel.value;
   if (!id) return;
   const shellCommand = /^\/shell(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (shellCommand && sentAttachments.length) {

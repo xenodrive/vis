@@ -114,6 +114,7 @@ export function useV2() {
   let loadingRevision = 0;
   let eventRevision = 0;
   let controlRevision = 0;
+  let settingsUpdates = 0;
   let requestRevision = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -353,7 +354,7 @@ export function useV2() {
 
   async function syncSession() {
     const id = selected.value?.id;
-    if (!id) return;
+    if (!id || settingsUpdates) return;
     const current = epoch;
     const scope = selection;
     const before = controlRevision;
@@ -651,18 +652,27 @@ export function useV2() {
 
   async function applySettings(sessionID: string, agent?: string, model?: ModelRef) {
     if (!agent && !model) return;
-    const info = await updateSessionSettings(
-      { sessionID, agent, model },
-      api().session,
-      options(),
-      () => ({
-        connection: epoch,
-        started: activityStarts.get(sessionID),
-        running: !!active.value[sessionID],
-      }),
-    );
-    if (selected.value?.id === sessionID)
-      selected.value = { ...selected.value, agent: info.agent, model: info.model };
+    // Invalidate older snapshots and keep intermediate settings out of the composer.
+    controlRevision++;
+    settingsUpdates++;
+    try {
+      const info = await updateSessionSettings(
+        { sessionID, agent, model },
+        api().session,
+        options(),
+        () => ({
+          connection: epoch,
+          started: activityStarts.get(sessionID),
+          running: !!active.value[sessionID],
+        }),
+      );
+      if (selected.value?.id === sessionID)
+        selected.value = { ...selected.value, agent: info.agent, model: info.model };
+    } finally {
+      settingsUpdates--;
+      controlRevision++;
+      scheduleRefresh();
+    }
   }
 
   function dismissPrompt(id: string) {
@@ -676,7 +686,13 @@ export function useV2() {
     files: Array<{ uri: string; name: string }> = [],
   ) {
     const id = selected.value?.id;
-    if (!id || (!text.trim() && !files.length) || busy.value || status.value !== 'connected')
+    if (
+      !id ||
+      (!text.trim() && !files.length) ||
+      busy.value ||
+      loading.value ||
+      status.value !== 'connected'
+    )
       return false;
     const slash = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
     const command = slash && commands.value.find((command) => command.name === slash[1]);
