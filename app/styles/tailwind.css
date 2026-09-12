@@ -2,10 +2,6 @@
 @plugin "@tailwindcss/typography";
 @source "../**/*.{vue,ts}";
 
-* {
-  overscroll-behavior: contain;
-}
-
 @media (max-width: 768px) {
   input,
   textarea:not(.input-textarea),
