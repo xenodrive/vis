@@ -76,6 +76,7 @@ export function useSessionState() {
   );
   const selected = shallowRef<SessionInfo>();
   const messages = shallowRef<SessionMessageInfo[]>([]);
+  let reconnectTranscript: SessionMessageInfo[] | undefined;
   const inbox = shallowRef<SessionInboxInfo[]>([]);
   const outgoing = ref<PendingPrompt[]>([]);
   const pendingPrompts = computed(() => {
@@ -172,6 +173,7 @@ export function useSessionState() {
     recentSessions.value = [];
     projects.value = [];
     messages.value = [];
+    reconnectTranscript = undefined;
     outgoing.value = [];
     permissions.value = [];
     forms.value = [];
@@ -299,7 +301,7 @@ export function useSessionState() {
     );
     if (current !== epoch || scope !== selection) return;
     const page = result.data.slice(0, pageSize);
-    let currentMessages = messages.value;
+    let currentMessages = reconnectTranscript ?? messages.value;
     if (pending) {
       currentMessages = mergeMessageSnapshot(currentMessages, [pending.message], {
         startedAt: pending.startedAt,
@@ -314,6 +316,7 @@ export function useSessionState() {
       touched,
       snapshots: snapshotReads,
     });
+    reconnectTranscript = undefined;
     const delivered = new Set(page.map((message) => message.id));
     if (pending) delivered.add(pending.message.id);
     outgoing.value = outgoing.value.filter(
@@ -460,16 +463,19 @@ export function useSessionState() {
         if (selected.value?.id === event.data.sessionID) clearSelection();
       }
       if (sessionID === selected.value?.id) {
-        const changed = applyTranscriptEvent(messages.value, event);
+        const transcript = reconnectTranscript ?? messages.value;
+        const changed = applyTranscriptEvent(transcript, event);
         if (changed) touched.set(changed, eventRevision);
         if (event.type === 'session.message.content.updated') {
-          const message = messages.value.find((item) => item.id === event.data.messageID);
+          const message = transcript.find((item) => item.id === event.data.messageID);
           if (message?.type === 'assistant') message.content = event.data.content;
           touched.set(event.data.messageID, eventRevision);
         }
         if (event.type === 'session.revert.committed') {
           selection++;
-          messages.value = messages.value.filter((message) => message.id < event.data.to);
+          const remaining = transcript.filter((message) => message.id < event.data.to);
+          if (reconnectTranscript) reconnectTranscript = remaining;
+          else messages.value = remaining;
           if (loading.value) void loadSelectedSession();
         }
       }
@@ -481,7 +487,7 @@ export function useSessionState() {
         scheduleRefresh();
       for (const listener of listeners) listener(event);
     }
-    triggerRef(messages);
+    if (!reconnectTranscript) triggerRef(messages);
   }
 
   function startEvents() {
@@ -517,8 +523,8 @@ export function useSessionState() {
         };
       } else {
         if (data.status === 'connected') {
-          // Rebuild the selected transcript after a gap; live SSE has no replay.
-          messages.value = [];
+          // Rebuild after a gap without clearing the visible history. Live SSE has no replay.
+          reconnectTranscript = [];
           selection++;
           sessions.value = [];
           sessionsLoaded = false;
@@ -571,6 +577,7 @@ export function useSessionState() {
     selection++;
     selected.value = undefined;
     messages.value = [];
+    reconnectTranscript = undefined;
     inbox.value = [];
     messageCursor.value = undefined;
     messageLookahead = undefined;
