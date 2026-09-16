@@ -55,6 +55,7 @@ export function useFileTree(
     const signal = controller.signal;
     index = createFileIndex({
       directory: location.directory,
+      projectDirectory: async () => (await state.readLocation(location, signal)).project.directory,
       signal,
       list: (path) => state.listFiles(location, path, signal),
       read: (path) => state.readFile(location, path, signal),
@@ -322,12 +323,7 @@ export function useFileTree(
 
   const stopEvents = state.onEvent((event) => {
     if (!['filesystem.changed', 'vcs.branch.updated'].includes(event.type)) return;
-    if (
-      !event.location ||
-      event.location.directory !== scope.value?.directory ||
-      event.location.workspaceID !== scope.value?.workspaceID
-    )
-      return;
+    if (!event.location || event.location.directory !== scope.value?.directory) return;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
       void reload();

@@ -2,7 +2,8 @@ import type {
   OpenCodeEvent,
   SessionMessageInfo,
   SessionMessageAssistant,
-} from '@opencode-ai/client';
+  SessionMessageContentUpdated,
+} from '@opencode/client';
 
 export function mergeMessages(current: SessionMessageInfo[], incoming: SessionMessageInfo[]) {
   const map = new Map(current.map((message) => [message.id, message]));
@@ -73,8 +74,14 @@ export function eventSessionID(event: OpenCodeEvent): string | undefined {
 /** Apply live transcript events directly to the server message model. */
 export function applyTranscriptEvent(
   messages: SessionMessageInfo[],
-  event: OpenCodeEvent,
+  // The generated stream union omits this event, which is in the server event inventory.
+  event: OpenCodeEvent | SessionMessageContentUpdated,
 ): string | undefined {
+  if (event.type === 'session.message.content.updated') {
+    const message = messages.find((item) => item.id === event.data.messageID);
+    if (message?.type === 'assistant') message.content = event.data.content;
+    return event.data.messageID;
+  }
   if (event.type === 'session.step.started') {
     const existing = messages.find((message) => message.id === event.data.assistantMessageID);
     if (existing?.type === 'assistant') {

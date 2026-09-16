@@ -1,4 +1,4 @@
-import type { ModelRef, OpenCodeClient } from '@opencode-ai/client';
+import type { ModelRef, OpenCodeClient } from '@opencode/client';
 
 type SessionClient = Pick<
   OpenCodeClient['session'],

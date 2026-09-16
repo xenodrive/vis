@@ -90,7 +90,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { PermissionRequest } from '@opencode-ai/client';
+import type { PermissionRequest } from '@opencode/client';
 
 type PermissionReply = 'once' | 'always' | 'reject';
 

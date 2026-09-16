@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
-import type { ModelInfo, ModelRef } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode/client';
 import CommitModelPicker from '../CommitModelPicker.vue';
 import GitDiffFile from './GitDiffFile.vue';
 import {

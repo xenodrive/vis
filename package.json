@@ -25,7 +25,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@opencode-ai/client": "0.0.0-beta-19192",
+    "@opencode/client": "2.0.4",
     "ignore": "^7.0.8"
   },
   "devDependencies": {

@@ -1,8 +1,4 @@
-import type {
-  FileDiffInfo,
-  SessionMessageAssistantTool,
-  ToolFileContent,
-} from '@opencode-ai/client';
+import type { FileDiffInfo, SessionMessageAssistantTool, ToolFileContent } from '@opencode/client';
 
 export type ToolSection = { label: string; code: string; path?: string; gutterLines?: string[] };
 export type ToolOutput = {

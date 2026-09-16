@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
-import type { FormAnswer, FormInfo } from '@opencode-ai/client';
+import type { FormAnswer, FormInfo } from '@opencode/client';
 import { externalUrl, formAnswer, initialAnswer, isVisible } from '../../utils/forms';
 
 const props = defineProps<{ form: FormInfo; disabled: boolean; serverError?: string }>();

@@ -100,6 +100,7 @@
         class="input-textarea"
         :disabled="false"
         placeholder="Send a message..."
+        @focus="emit('focus')"
         @keydown="handleKeydown"
         @paste="handlePaste"
         @drop="handleDrop"
@@ -333,6 +334,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: 'focus'): void;
   (event: 'show-pending'): void;
   (event: 'update:message-input', value: string): void;
   (event: 'update:selected-mode', value: string): void;
@@ -841,13 +843,17 @@ function focus() {
   textareaRef.value?.focus();
 }
 
+function blur() {
+  textareaRef.value?.blur();
+}
+
 function reset() {
   historyOpen.value = false;
   favoritesOpen.value = false;
   modelPickerRef.value?.reset();
 }
 
-defineExpose({ focus, reset });
+defineExpose({ focus, blur, reset });
 
 const inputMessageStyle = computed(() => {
   if (!props.agentColor) return undefined;
@@ -883,6 +889,9 @@ const inputMessageStyle = computed(() => {
     grid-template-columns: minmax(72px, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
     padding: 4px;
     gap: 4px;
+  }
+  .input-panel:has(.input-textarea:focus) .input-toolbar {
+    display: none;
   }
   .input-panel .input-selects {
     display: block;

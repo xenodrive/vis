@@ -6,7 +6,7 @@
 - [API reference](https://opencode.ai/v2/docs/api)
 - The connected service's `/openapi.json`
 
-vis targets the OpenCode V2 API and uses `@opencode-ai/client@0.0.0-beta-19192`. Use its exported types for server data and its Promise methods for requests. Visual components receive application-owned display records.
+vis targets the OpenCode V2 API and uses `@opencode/client@2.0.4`. Use its exported types for server data and its Promise methods for requests. Visual components receive application-owned display records.
 
 ## Application boundaries
 
@@ -50,6 +50,8 @@ The browser receives the service URL and password from the user. It does not use
 
 Sessions own their Location, agent and model. Existing-session operations identify the session directly; location-scoped catalogs and pending requests use the client's `location` input.
 
+Connection initialization uses `server.status` (`GET /api/status`) for the server version and `location.get` for the default directory. Public Locations contain only a directory; project metadata is obtained from `location.get` rather than resource response envelopes.
+
 Session and message lists return `data` and opaque pagination cursors. Resource methods have generated return types; not every response has the same envelope.
 
 Messages are a discriminated union. User messages have text and attachments; assistant messages contain text, reasoning and tool content. Tool results contain structured content. System, synthetic, compaction, shell and selection-change messages have their own presentations.
@@ -58,11 +60,13 @@ Tool history retains the native `SessionMessageAssistantTool` in the required `T
 
 Agent/model changes use `session.switchAgent` and `session.switchModel`. `session.prompt` admits text to the inbox with a `queue` or `steer` delivery policy. Admission is not execution completion. `session.interrupt` interrupts execution; `session.inbox.cancel` removes a pending input.
 
-Permission replies use `sessionID`, `requestID` and `reply`. Forms use `sessionID`, `formID` and a keyed answer object. Request snapshots cover discovered session locations and locations observed in live request events. Global forms retain their Location for reply headers.
+Session titles use `session.update`. Slash commands pass `name` to `session.command`. Stateless commit-message generation uses `generate.text` (`POST /api/experimental/generate`).
+
+Permission replies use `sessionID`, `requestID` and `decision`. Pending forms use `form.list`; replies and cancellation use `session.form.reply` and `session.form.cancel` with `sessionID`, `formID` and a keyed answer object for replies. Request snapshots cover discovered session locations and locations observed in live request events. Global forms retain their Location for reply headers.
 
 ## Files, Git and terminals
 
-File browsing uses `file.list` for direct children and `file.read` for bytes. A background traversal preloads unignored directories without expanding the visible tree. Directory loads share in-flight requests and evaluate `.gitignore` files at each level, including repository ancestors when the Location is a subdirectory. `.git` and `node_modules` are always excluded from automatic descent. Excluded entries retain the existing dimmed styling; manual expansion loads them without adding ignored paths to the reference index. Traversal uses four concurrent loads and scheduling thresholds of 300 directories, 20,000 entries and depth 12. The reference index is published in batches. It is reused within the same Location and rebuilt on reload or file changes. Requests retain the Location workspace and are cancelled when leaving that Location. No per-reference `file.find` requests are made. File viewers decode UTF-8 text and retain original bytes for image and binary rendering.
+File browsing uses `file.list` for direct children and `file.read` for bytes. A background traversal preloads unignored directories without expanding the visible tree. Directory loads share in-flight requests and evaluate `.gitignore` files at each level, including repository ancestors obtained through `location.get` when the Location is a subdirectory. `.git` and `node_modules` are always excluded from automatic descent. Excluded entries retain the existing dimmed styling; manual expansion loads them without adding ignored paths to the reference index. Traversal uses four concurrent loads and scheduling thresholds of 300 directories, 20,000 entries and depth 12. The reference index is published in batches. It is reused within the same Location and rebuilt on reload or file changes. Requests retain the Location directory and are cancelled when leaving that Location. No per-reference `file.find` requests are made. File viewers decode UTF-8 text and retain original bytes for image and binary rendering.
 
 Git state uses `vcs.get` and `vcs.status`. Git controls and changes dialogs also execute commands through the shell API for branch inspection, staged/unstaged diff previews, staging and commits. Git command construction and preview decoding live in `app/utils/git/`; UI lifecycle stays in composables and components. Filesystem events invalidate the tree and Git snapshot with a debounce. Obsolete responses are discarded after a selection change.
 

@@ -1,5 +1,5 @@
 import { watch, onBeforeUnmount } from 'vue';
-import type { Pty } from '@opencode-ai/client';
+import type { Pty } from '@opencode/client';
 import type { useSessionState } from './useSessionState';
 import type { useFloatingWindows } from './useFloatingWindows';
 import type { PtyClient } from '../utils/protocol/pty';

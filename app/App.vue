@@ -22,7 +22,7 @@
       </div>
     </Transition>
     <template v-if="ready">
-      <header ref="headerEl" class="app-header">
+      <header v-show="headerVisible" id="app-header" ref="headerEl" class="app-header">
         <TopPanel
           :show-files-toggle="isMobile"
           :files-expanded="!sidePanelCollapsed"
@@ -135,7 +135,22 @@
                     @open-file="fileTree.openFile"
                     @show-commit="unavailable('Commit diff')"
                     @show-message-diff="unavailable('Message diff')"
-                  />
+                  >
+                    <template #header-actions>
+                      <button
+                        type="button"
+                        class="header-toggle"
+                        role="switch"
+                        :aria-checked="headerVisible"
+                        aria-controls="app-header"
+                        aria-label="Show header menu"
+                        @click="headerVisible = !headerVisible"
+                      >
+                        <span>Menu</span>
+                        <span class="header-toggle-track" aria-hidden="true"></span>
+                      </button>
+                    </template>
+                  </OutputPanel>
                 </div>
               </div>
             </div>
@@ -149,6 +164,7 @@
             <div class="input-resizer" @pointerdown="startInputResize"></div>
             <InputPanel
               ref="inputPanelRef"
+              @focus="isMobile && (headerVisible = false)"
               :disabled="status !== 'connected' || busy || loading"
               :can-send="canSend"
               :agent-options="agentOptions"
@@ -328,7 +344,7 @@ import { opencodeTheme, resolveAgentColor, resolveTheme } from './utils/theme';
 import { randomUUID } from './utils/uuid';
 import { selectCommitModel } from './utils/commitModel';
 import type { MessageTokens } from './types/message';
-import type { ModelRef } from '@opencode-ai/client';
+import type { ModelRef } from '@opencode/client';
 
 const state = useSessionState();
 const {
@@ -484,8 +500,12 @@ const {
   },
   fw,
 );
+const headerVisible = ref(!isMobile.value);
 const scrollEl = computed(() => outputPanelRef.value?.panelEl ?? undefined);
-const scroller = useAutoScroller(scrollEl, ref('follow'), { smoothEngine: 'native' });
+const scroller = useAutoScroller(scrollEl, ref('follow'), {
+  smoothEngine: 'raf',
+  scrollSpeedPxPerSecond: 3000,
+});
 const isSettingsOpen = ref(false);
 const isProjectPickerOpen = ref(false);
 const loginUrl = ref('');
@@ -774,7 +794,8 @@ async function send() {
       if (!shellCommand && text.trim() !== '/compact' && pendingAgent.value === agent)
         pendingAgent.value = undefined;
       inputPanelRef.value?.reset();
-      focusInput();
+      if (isMobile.value) inputPanelRef.value?.blur();
+      else focusInput();
       scroller.resumeFollow();
     }
   }
@@ -1159,6 +1180,42 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   position: relative;
   z-index: 30;
 }
+.header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+.header-toggle:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.header-toggle-track {
+  width: 28px;
+  height: 16px;
+  padding: 2px;
+  border-radius: 999px;
+  background: #475569;
+}
+.header-toggle-track::before {
+  content: '';
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e2e8f0;
+}
+.header-toggle[aria-checked='true'] .header-toggle-track {
+  background: #2563eb;
+}
+.header-toggle[aria-checked='true'] .header-toggle-track::before {
+  transform: translateX(12px);
+}
 .app-output {
   flex: 1 1 auto;
   min-height: 0;
@@ -1349,16 +1406,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
     display: none;
   }
   .app-input {
-    height: clamp(100px, 32%, 200px) !important;
+    /* Small viewport units stay stable when the software keyboard opens. */
+    height: clamp(144px, 24svh, 200px) !important;
     min-height: 0;
-    max-height: 50%;
+    max-height: none;
   }
-  .app:has(.input-textarea:focus) .app-header {
-    display: none;
-  }
-  .app:has(.input-textarea:focus) .app-input {
-    height: 60% !important;
-    max-height: 60%;
+  .app-input:has(.input-textarea:focus) {
+    height: clamp(108px, 18svh, 150px) !important;
   }
   .tool-window-canvas {
     z-index: 60;

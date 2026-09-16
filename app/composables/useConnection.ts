@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { OpenCodeClient } from '@opencode-ai/client';
+import type { OpenCodeClient } from '@opencode/client';
 import EventWorker from '../workers/events?sharedworker';
 import type { EventCommand, EventMessage } from '../types/event-worker';
 import { createClient, type Connection } from '../utils/protocol/client';

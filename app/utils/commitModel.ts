@@ -1,4 +1,4 @@
-import type { ModelInfo, ModelRef } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode/client';
 
 // Keep these priorities aligned with OpenCode's title model selection.
 const FAMILY_PRIORITY = ['gpt-luna', 'gemini-flash-lite', 'gemini-flash', 'claude-haiku'];

@@ -23,6 +23,7 @@ export interface FloatingWindowEntry {
   resizable: boolean;
   scroll: 'follow' | 'force' | 'manual' | 'none';
   smoothEngine?: 'raf' | 'native';
+  scrollSpeedPxPerSecond?: number;
   focusOnOpen?: boolean;
   color?: string;
   time: number;
@@ -202,6 +203,11 @@ export function useFloatingWindows() {
     // When updating an existing entry, merge props instead of replacing
     if (existing && existing.props && opts.props) {
       merged.props = { ...existing.props, ...opts.props };
+    }
+
+    if (!existing && window.matchMedia('(max-width: 768px)').matches) {
+      merged.width = Math.min(merged.width ?? 600, extent.width, (extent.height * 4) / 3);
+      merged.height = (merged.width * 3) / 4;
     }
 
     // Set initial position if new and no explicit x/y provided

@@ -1,7 +1,7 @@
-import type { OpenCodeClient, LocationRef } from '@opencode-ai/client';
+import type { OpenCodeClient, LocationPublicRef } from '@opencode/client';
 
-export function createPtyClient(client: OpenCodeClient, baseUrl: string, scope: LocationRef) {
-  const location = { directory: scope.directory, workspace: scope.workspaceID };
+export function createPtyClient(client: OpenCodeClient, baseUrl: string, scope: LocationPublicRef) {
+  const location = { directory: scope.directory };
   return {
     async list(signal: AbortSignal) {
       return (await client.pty.list({ location }, { signal })).data;
@@ -40,8 +40,6 @@ export function createPtyClient(client: OpenCodeClient, baseUrl: string, scope: 
       );
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       url.searchParams.set('location[directory]', location.directory);
-      if (location.workspace !== undefined)
-        url.searchParams.set('location[workspace]', location.workspace);
       url.searchParams.set('ticket', token.data.ticket);
       if (cursor !== undefined) url.searchParams.set('cursor', String(cursor));
       return url.toString();

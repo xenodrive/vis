@@ -1,4 +1,4 @@
-import type { Project } from '@opencode-ai/client';
+import type { Project } from '@opencode/client';
 
 const PROJECT_COLOR_HEX: Record<string, string> = {
   pink: '#e34ba9',

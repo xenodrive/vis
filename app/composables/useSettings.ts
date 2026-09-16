@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue';
-import type { ModelRef } from '@opencode-ai/client';
+import type { ModelRef } from '@opencode/client';
 import {
   StorageKeys,
   storageGet,

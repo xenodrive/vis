@@ -119,7 +119,7 @@ onMounted(() => {
   terminal = new Terminal({
     cols: 80,
     rows: 25,
-    fontSize: 13,
+    fontSize: Number.parseFloat(getComputedStyle(host.value!).fontSize),
     lineHeight: 1.1,
     fontFamily: PTY_FONT_FAMILY,
     cursorBlink: true,
@@ -143,7 +143,7 @@ onMounted(() => {
   initialFrame = requestAnimationFrame(() => {
     const screen = host.value?.querySelector<HTMLElement>('.xterm-screen');
     const viewport = host.value?.querySelector<HTMLElement>('.xterm-viewport');
-    if (screen)
+    if (screen && !window.matchMedia('(max-width: 768px)').matches)
       emit('size', {
         width: Math.ceil(
           screen.offsetWidth + (viewport ? viewport.offsetWidth - viewport.clientWidth : 0) + 10,
@@ -151,6 +151,7 @@ onMounted(() => {
         height: Math.ceil(screen.offsetHeight + 29),
       });
     fitted = true;
+    fit();
   });
   void connect();
 });

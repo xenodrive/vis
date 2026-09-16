@@ -2,7 +2,7 @@ import type {
   SessionInfo,
   SessionMessageInfo,
   SessionMessageAssistantTool,
-} from '@opencode-ai/client';
+} from '@opencode/client';
 import type { MessageInfo, MessagePart, ToolPart } from '../types/message';
 
 export type PresentedMessage = { info: MessageInfo; parts: MessagePart[] };

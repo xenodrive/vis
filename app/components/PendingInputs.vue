@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SessionInboxInfo } from '@opencode-ai/client';
+import type { SessionInboxInfo } from '@opencode/client';
 defineProps<{ items: SessionInboxInfo[]; disabled: boolean }>();
 defineEmits<{ cancel: [item: SessionInboxInfo] }>();
 </script>

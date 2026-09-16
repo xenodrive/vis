@@ -25,7 +25,10 @@ const scrollMode = computed<ScrollMode>(() => props.entry.scroll || 'manual');
 const { showResumeButton, isFollowing, resumeFollow, notifyContentChange } = useAutoScroller(
   bodyEl,
   scrollMode,
-  { smoothEngine: props.entry.smoothEngine },
+  {
+    smoothEngine: props.entry.smoothEngine,
+    scrollSpeedPxPerSecond: props.entry.scrollSpeedPxPerSecond,
+  },
 );
 const search = useContentSearch(bodyEl);
 
@@ -600,7 +603,7 @@ function onResizeEnd(e: PointerEvent) {
 }
 @media (max-width: 768px) {
   .floating-window {
-    --term-font-size: 11px;
+    --term-font-size: 10px;
     -webkit-text-size-adjust: none;
     text-size-adjust: none;
   }

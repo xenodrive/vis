@@ -3,7 +3,7 @@ import { ref, computed, watch, onUnmounted, type Ref } from 'vue';
 export type ScrollMode = 'follow' | 'force' | 'manual' | 'none';
 
 const BOTTOM_THRESHOLD_PX = 8;
-const SCROLL_SPEED_PX_PER_MS = 1.5;
+const SCROLL_SPEED_PX_PER_SECOND = 1500;
 const INTERVENTION_TOLERANCE_PX = 2;
 const MAX_FRAME_DT_MS = 50;
 const NATIVE_SMOOTH_TIMEOUT_MS = 1_500;
@@ -15,6 +15,7 @@ type ScrollFollowOptions = {
   bottomThresholdPx?: number;
   observeDelayMs?: number;
   smoothEngine?: SmoothEngine;
+  scrollSpeedPxPerSecond?: number;
   smoothOnInitialFollow?: boolean;
   enabled?: boolean;
 };
@@ -26,6 +27,7 @@ export function useAutoScroller(
 ) {
   const bottomThresholdPx = options.bottomThresholdPx ?? BOTTOM_THRESHOLD_PX;
   const smoothEngine = options.smoothEngine ?? 'raf';
+  const scrollSpeedPxPerMs = (options.scrollSpeedPxPerSecond ?? SCROLL_SPEED_PX_PER_SECOND) / 1000;
   const smoothOnInitialFollow = options.smoothOnInitialFollow ?? true;
   const isFollowing = ref(scrollMode.value === 'follow' || scrollMode.value === 'force');
   const isTrackingPaused = ref(options.enabled === false);
@@ -208,7 +210,7 @@ export function useAutoScroller(
         return;
       }
 
-      const step = SCROLL_SPEED_PX_PER_MS * dt;
+      const step = scrollSpeedPxPerMs * dt;
       const newTop = Math.min(el.scrollTop + step, target);
       el.scrollTop = newTop;
       lastSetScrollTop = newTop;

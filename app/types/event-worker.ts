@@ -1,4 +1,4 @@
-import type { OpenCodeEvent } from '@opencode-ai/client';
+import type { OpenCodeEvent } from '@opencode/client';
 import type { Connection } from '../utils/protocol/client';
 
 export type EventCommand =

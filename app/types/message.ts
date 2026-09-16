@@ -1,4 +1,4 @@
-import type { SessionMessageAssistantTool } from '@opencode-ai/client';
+import type { SessionMessageAssistantTool } from '@opencode/client';
 
 /** Display records consumed by thread and floating-window components. */
 export type MessageError = {

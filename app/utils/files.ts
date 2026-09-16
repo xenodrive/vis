@@ -1,4 +1,4 @@
-import type { FileSystemEntry } from '@opencode-ai/client';
+import type { FileSystemEntry } from '@opencode/client';
 import type { TreeNode } from '../types/files';
 
 export function treeChildren(entries: FileSystemEntry[]): TreeNode[] {

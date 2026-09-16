@@ -1,4 +1,4 @@
-import type { FormAnswer, FormField, FormInfo } from '@opencode-ai/client';
+import type { FormAnswer, FormField, FormInfo } from '@opencode/client';
 
 export function initialAnswer(form: FormInfo): FormAnswer {
   const answer: FormAnswer = {};

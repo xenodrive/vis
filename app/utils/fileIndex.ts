@@ -1,5 +1,5 @@
 import ignore, { type Ignore } from 'ignore';
-import type { FileListOutput } from '@opencode-ai/client';
+import type { FileListOutput } from '@opencode/client';
 import type { TreeNode } from '../types/files';
 import { treeChildren } from './files';
 
@@ -13,6 +13,7 @@ const CONCURRENCY = 4;
 /** A Location-owned index. Rendering file references never performs a search request. */
 export function createFileIndex(options: {
   directory: string;
+  projectDirectory: () => Promise<string>;
   signal: AbortSignal;
   list: (path: string) => Promise<FileListOutput>;
   read: (path: string) => Promise<Uint8Array>;
@@ -58,8 +59,8 @@ export function createFileIndex(options: {
     }
     return result;
   }
-  async function ancestorRules(listing: FileListOutput) {
-    const project = listing.location.project.directory.replace(/\/$/, '');
+  async function ancestorRules() {
+    const project = (await options.projectDirectory()).replace(/\/$/, '');
     if (!project || root === project || !root.startsWith(`${project}/`)) return [];
     let rules: RuleSet[] = [];
     let directory = project;
@@ -81,7 +82,7 @@ export function createFileIndex(options: {
       let inherited: RuleSet[];
       let parentIgnored = false;
       if (path === '.') {
-        inherited = await ancestorRules(listing);
+        inherited = await ancestorRules();
         parentIgnored = ignored('.', true, inherited);
       } else {
         const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.';

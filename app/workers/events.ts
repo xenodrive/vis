@@ -1,4 +1,4 @@
-import type { OpenCodeEvent } from '@opencode-ai/client';
+import type { OpenCodeEvent } from '@opencode/client';
 import { createClient, type Connection } from '../utils/protocol/client';
 import { errorMessage } from '../utils/errors';
 import type { EventCommand, EventMessage } from '../types/event-worker';

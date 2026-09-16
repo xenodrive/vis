@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import type { SessionMessageInfo } from '@opencode-ai/client';
+import type { SessionMessageInfo } from '@opencode/client';
 import type { useSessionState } from './useSessionState';
 import type { useFloatingWindows } from './useFloatingWindows';
 import { useSettings } from './useSettings';

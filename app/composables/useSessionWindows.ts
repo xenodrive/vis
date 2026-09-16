@@ -4,7 +4,7 @@ import type {
   SessionMessageAssistantTool,
   SessionInfo,
   OpenCodeEvent,
-} from '@opencode-ai/client';
+} from '@opencode/client';
 import { useFloatingWindows } from './useFloatingWindows';
 import type { useSessionState } from './useSessionState';
 import { useSettings } from './useSettings';

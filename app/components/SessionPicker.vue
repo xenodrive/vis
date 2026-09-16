@@ -21,6 +21,7 @@
           <div class="picker-panel">
             <DropdownSearch
               v-model="projectSearch"
+              :auto-focus="!mobile"
               class="picker-search"
               placeholder="Search projects…"
             >
@@ -77,7 +78,7 @@
                       <strong :title="place.directory"
                         ><Icon icon="mdi:folder-outline" class="name-icon" width="14" />
                         {{ place.directory }}</strong
-                      ><small v-if="place.workspaceID">{{ place.workspaceID }}</small>
+                      >
                     </div>
                   </DropdownItem>
                 </div>
@@ -175,7 +176,7 @@
           v-if="location"
           class="picker-more"
           :disabled="state.busy.value"
-          @click="state.createSession(location.directory, location.workspaceID)"
+          @click="state.createSession(location.directory)"
         >
           New session
         </button>
@@ -187,7 +188,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Icon } from '@iconify/vue';
-import type { Project, SessionInfo } from '@opencode-ai/client';
+import type { Project, SessionInfo } from '@opencode/client';
 import type { useSessionState } from '../composables/useSessionState';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
@@ -243,7 +244,7 @@ const location = computed(
     (currentProject.value ? { directory: currentProject.value.canonical } : undefined),
 );
 function locationKey(place: Place) {
-  return JSON.stringify([place.directory, place.workspaceID]);
+  return place.directory;
 }
 function projectLocations(project: Project): Place[] {
   const canonical: Place = { directory: project.canonical };
@@ -282,7 +283,7 @@ const filteredProjects = computed(() => {
   return props.state.sortedProjects.value
     .filter((project) =>
       `${project.name ?? ''} ${projectLocations(project)
-        .map((place) => `${place.directory} ${place.workspaceID ?? ''}`)
+        .map((place) => place.directory)
         .join(' ')}`
         .toLowerCase()
         .includes(query),
@@ -351,11 +352,9 @@ async function load(more = false) {
     if (request !== revision) return;
     const page = result.data.slice(0, pageSize);
     if (pending) page.unshift(pending);
-    const visible = page.filter((session) => session.location.workspaceID === place.workspaceID);
     rows.value = more
-      ? [...new Map([...rows.value, ...visible].map((session) => [session.id, session])).values()]
-      : visible;
-    // Check the unfiltered page so excluded workspaces do not hide later sessions.
+      ? [...new Map([...rows.value, ...page].map((session) => [session.id, session])).values()]
+      : page;
     sessionLookahead = result.data[pageSize];
     cursor.value = sessionLookahead ? (result.cursor.next ?? undefined) : undefined;
   } catch (cause) {

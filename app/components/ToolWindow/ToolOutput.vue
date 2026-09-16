@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { SessionMessageAssistantTool } from '@opencode-ai/client';
+import type { SessionMessageAssistantTool } from '@opencode/client';
 import { toolOutput } from '../../utils/protocol/tool-output';
 import ToolSection from './ToolSection.vue';
 import DiffRenderer from '../renderers/DiffRenderer.vue';

@@ -43,7 +43,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { ModelInfo, ModelRef } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode/client';
 import { Icon } from '@iconify/vue';
 import { useSettings } from '../composables/useSettings';
 import CommitModelPicker from './CommitModelPicker.vue';

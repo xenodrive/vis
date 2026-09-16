@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ModelInfo, ModelRef } from '@opencode-ai/client';
+import type { ModelInfo, ModelRef } from '@opencode/client';
 import { useSettings } from '../composables/useSettings';
 import ModelSelect from './ModelSelect.vue';
 import VariantSelect from './VariantSelect.vue';

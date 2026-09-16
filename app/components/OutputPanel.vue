@@ -1,8 +1,9 @@
 <template>
   <div class="output-panel-root">
     <div class="output-panel-shell" :style="shellStyle">
-      <div v-if="projectName" class="project-name-bar">
-        {{ projectName }}
+      <div v-if="projectName || $slots['header-actions']" class="output-panel-header">
+        <div class="project-name-bar">{{ projectName }}</div>
+        <slot name="header-actions" />
       </div>
       <div class="output-panel-main">
         <div
@@ -457,13 +458,25 @@ defineExpose({ panelEl });
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.5);
 }
 
-.project-name-bar {
+.output-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   flex: 0 0 auto;
+  padding: 0 4px 0 12px;
+}
+.project-name-bar {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.03em;
   color: color-mix(in srgb, var(--project-tint, #94a3b8) 60%, #94a3b8);
-  padding: 12px 12px 0;
+  padding-top: 12px;
+  padding-bottom: 8px;
   user-select: none;
 }
 

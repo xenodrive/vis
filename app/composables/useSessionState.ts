@@ -13,8 +13,8 @@ import type {
   SessionInfo,
   SessionInboxInfo,
   SessionMessageInfo,
-  LocationRef,
-} from '@opencode-ai/client';
+  LocationPublicRef,
+} from '@opencode/client';
 import { useConnection } from './useConnection';
 import type { Connection } from '../utils/protocol/client';
 import { errorMessage } from '../utils/errors';
@@ -127,8 +127,8 @@ export function useSessionState() {
   let sessionLookahead: SessionInfo | undefined;
   let messageRead = 0;
   const snapshotReads = new Map<string, number>();
-  const requestLocations = new Map<string, LocationRef>();
-  const formLocations = new Map<string, LocationRef>();
+  const requestLocations = new Map<string, LocationPublicRef>();
+  const formLocations = new Map<string, LocationPublicRef>();
   let syncing = false;
   let syncAgain = false;
   const touched = new Map<string, number>();
@@ -137,7 +137,7 @@ export function useSessionState() {
 
   function location() {
     const info = selected.value?.location;
-    return { directory: info?.directory ?? directory.value, workspace: info?.workspaceID };
+    return { directory: info?.directory ?? directory.value };
   }
   function report(cause: unknown) {
     error.value = errorMessage(cause);
@@ -246,16 +246,16 @@ export function useSessionState() {
     const current = epoch;
     const scope = selection;
     const before = requestRevision;
-    const register = (ref: LocationRef) => requestLocations.set(JSON.stringify(ref), ref);
+    const register = (ref: LocationPublicRef) => requestLocations.set(JSON.stringify(ref), ref);
     register({ directory: directory.value });
     for (const session of sessions.value) register(session.location);
     if (selected.value) register(selected.value.location);
     const snapshots = await Promise.all(
       [...requestLocations.values()].map(async (ref) => {
-        const query = { directory: ref.directory, workspace: ref.workspaceID };
+        const query = { directory: ref.directory };
         const [permissionList, formList] = await Promise.all([
           api().permission.request.list({ location: query }, options()),
-          api().form.request.list({ location: query }, options()),
+          api().form.list({ location: query }, options()),
         ]);
         return { ref, permissions: permissionList.data, forms: formList.data };
       }),
@@ -466,11 +466,6 @@ export function useSessionState() {
         const transcript = reconnectTranscript ?? messages.value;
         const changed = applyTranscriptEvent(transcript, event);
         if (changed) touched.set(changed, eventRevision);
-        if (event.type === 'session.message.content.updated') {
-          const message = transcript.find((item) => item.id === event.data.messageID);
-          if (message?.type === 'assistant') message.content = event.data.content;
-          touched.set(event.data.messageID, eventRevision);
-        }
         if (event.type === 'session.revert.committed') {
           selection++;
           const remaining = transcript.filter((message) => message.id < event.data.to);
@@ -550,12 +545,12 @@ export function useSessionState() {
     const current = epoch;
     try {
       transport.initialize(input);
-      const [health, info] = await Promise.all([
-        api().health.get(options()),
+      const [server, info] = await Promise.all([
+        api().server.status(options()),
         api().location.get(undefined, options()),
       ]);
       if (current !== epoch) return;
-      version.value = health.version;
+      version.value = server.version;
       directory.value = info.directory;
       connection = { ...input };
       await loadCatalog();
@@ -608,11 +603,11 @@ export function useSessionState() {
     }
   }
 
-  async function createSession(path: string, workspace?: string) {
+  async function createSession(path: string) {
     await perform(async () => {
       if (!path.trim()) throw new Error('Enter an absolute directory on the OpenCode server.');
       const session = await api().session.create(
-        { location: { directory: path.trim(), workspaceID: workspace } },
+        { location: { directory: path.trim() } },
         options(),
       );
       await selectSession(session);
@@ -694,7 +689,7 @@ export function useSessionState() {
       if (current !== epoch) throw new Error('The connection changed before sending the message.');
       if (command) {
         await api().session.command(
-          { sessionID: id, command: command.name, text: slash?.[2] ?? '', delivery, files },
+          { sessionID: id, name: command.name, text: slash?.[2] ?? '', delivery, files },
           options(),
         );
       } else {
@@ -753,7 +748,7 @@ export function useSessionState() {
   async function replyPermission(request: PermissionRequest, reply: PermissionReply) {
     await perform(async () => {
       await api().permission.reply(
-        { sessionID: request.sessionID, requestID: request.id, reply },
+        { sessionID: request.sessionID, requestID: request.id, decision: reply },
         options(),
       );
       permissions.value = permissions.value.filter((item) => item.id !== request.id);
@@ -762,7 +757,7 @@ export function useSessionState() {
 
   async function replyForm(form: FormInfo, answer: FormAnswer) {
     await perform(async () => {
-      await api().form.reply(
+      await api().session.form.reply(
         { sessionID: form.sessionID, formID: form.id, answer },
         formOptions(form),
       );
@@ -772,7 +767,10 @@ export function useSessionState() {
 
   async function cancelForm(form: FormInfo) {
     await perform(async () => {
-      await api().form.cancel({ sessionID: form.sessionID, formID: form.id }, formOptions(form));
+      await api().session.form.cancel(
+        { sessionID: form.sessionID, formID: form.id },
+        formOptions(form),
+      );
       forms.value = forms.value.filter((item) => item.id !== form.id);
     });
   }
@@ -781,7 +779,6 @@ export function useSessionState() {
     const ref = formLocations.get(form.id);
     const headers: Record<string, string> = {};
     if (ref) headers['x-opencode-directory'] = encodeURIComponent(ref.directory);
-    if (ref?.workspaceID) headers['x-opencode-workspace'] = ref.workspaceID;
     return { ...options(), headers };
   }
 
@@ -817,22 +814,29 @@ export function useSessionState() {
     });
   }
 
-  function listFiles(scope: LocationRef, path: string, signal: AbortSignal) {
+  function readLocation(scope: LocationPublicRef, signal: AbortSignal) {
+    return api().location.get(
+      { location: { directory: scope.directory } },
+      { signal: AbortSignal.any([signal, options().signal]) },
+    );
+  }
+
+  function listFiles(scope: LocationPublicRef, path: string, signal: AbortSignal) {
     return api().file.list(
-      { location: { directory: scope.directory, workspace: scope.workspaceID }, path },
+      { location: { directory: scope.directory }, path },
       { signal: AbortSignal.any([signal, options().signal]) },
     );
   }
 
-  function readFile(scope: LocationRef, path: string, signal: AbortSignal) {
+  function readFile(scope: LocationPublicRef, path: string, signal: AbortSignal) {
     return api().file.read(
-      { location: { directory: scope.directory, workspace: scope.workspaceID }, path },
+      { location: { directory: scope.directory }, path },
       { signal: AbortSignal.any([signal, options().signal]) },
     );
   }
 
-  async function readVcs(scope: LocationRef, signal: AbortSignal) {
-    const location = { directory: scope.directory, workspace: scope.workspaceID };
+  async function readVcs(scope: LocationPublicRef, signal: AbortSignal) {
+    const location = { directory: scope.directory };
     const request = { signal: AbortSignal.any([signal, options().signal]) };
     const [info, status] = await Promise.all([
       api().vcs.get({ location }, request),
@@ -841,10 +845,10 @@ export function useSessionState() {
     return { info: info.data, status: status.data };
   }
 
-  async function readWorkingDiff(scope: LocationRef, signal: AbortSignal) {
+  async function readWorkingDiff(scope: LocationPublicRef, signal: AbortSignal) {
     return (
       await api().vcs.diff(
-        { location: { directory: scope.directory, workspace: scope.workspaceID }, mode: 'working' },
+        { location: { directory: scope.directory }, mode: 'working' },
         { signal: AbortSignal.any([signal, options().signal]) },
       )
     ).data;
@@ -897,7 +901,7 @@ export function useSessionState() {
   }
 
   async function listLocationSessions(
-    place: LocationRef,
+    place: LocationPublicRef,
     search: string,
     cursor: string | undefined,
     limit: number,
@@ -909,7 +913,6 @@ export function useSessionState() {
           ? { cursor }
           : {
               directory: place.directory,
-              workspace: place.workspaceID,
               search,
               parentID: null,
               order: 'desc' as const,
@@ -921,7 +924,7 @@ export function useSessionState() {
 
   async function renameSession(sessionID: string, title: string) {
     await perform(async () => {
-      await api().session.rename({ sessionID, title }, options());
+      await api().session.update({ sessionID, title }, options());
       if (selected.value?.id === sessionID) await syncSession();
       await loadSessions();
     });
@@ -1026,12 +1029,13 @@ export function useSessionState() {
     renameSession,
     renameProject,
     updateProjectSettings,
-    ptyClient(scope: LocationRef) {
+    ptyClient(scope: LocationPublicRef) {
       if (!connection) throw new Error('Connect to OpenCode before opening a terminal.');
       return createPtyClient(api(), connection.url, scope);
     },
     readVcs,
     readWorkingDiff,
+    readLocation,
     listFiles,
     readFile,
     onEvent,
