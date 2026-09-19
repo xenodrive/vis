@@ -419,6 +419,9 @@ export function useSessionState() {
           'session.renamed',
           'session.agent.selected',
           'session.model.selected',
+          'session.revert.staged',
+          'session.revert.cleared',
+          'session.revert.committed',
         ].includes(event.type)
       )
         controlRevision++;
@@ -463,6 +466,13 @@ export function useSessionState() {
         if (selected.value?.id === event.data.sessionID) clearSelection();
       }
       if (sessionID === selected.value?.id) {
+        if (event.type === 'session.revert.staged' && selected.value)
+          selected.value = { ...selected.value, revert: event.data.revert };
+        if (
+          (event.type === 'session.revert.cleared' || event.type === 'session.revert.committed') &&
+          selected.value
+        )
+          selected.value = { ...selected.value, revert: undefined };
         const transcript = reconnectTranscript ?? messages.value;
         const changed = applyTranscriptEvent(transcript, event);
         if (changed) touched.set(changed, eventRevision);
@@ -546,7 +556,7 @@ export function useSessionState() {
     try {
       transport.initialize(input);
       const [server, info] = await Promise.all([
-        api().server.status(options()),
+        api().server.info(options()),
         api().location.get(undefined, options()),
       ]);
       if (current !== epoch) return;
@@ -612,6 +622,57 @@ export function useSessionState() {
       );
       await selectSession(session);
       await loadSessions();
+    });
+  }
+
+  function canChangeHistory(sessionID: string) {
+    return (
+      selected.value?.id === sessionID &&
+      !busy.value &&
+      !loading.value &&
+      !running.value &&
+      status.value === 'connected'
+    );
+  }
+
+  async function forkMessage(input: { sessionId: string; messageId: string }) {
+    if (!canChangeHistory(input.sessionId)) return;
+    const current = epoch;
+    const scope = selection;
+    await perform(async () => {
+      const session = await api().session.fork(
+        { sessionID: input.sessionId, before: input.messageId },
+        options(),
+      );
+      if (current !== epoch || scope !== selection) return;
+      await selectSession(session);
+      await loadSessions();
+    });
+  }
+
+  async function revertMessage(input: { sessionId: string; messageId: string }) {
+    if (!canChangeHistory(input.sessionId)) return;
+    const current = epoch;
+    const scope = selection;
+    await perform(async () => {
+      await api().session.revert.stage(
+        { sessionID: input.sessionId, messageID: input.messageId, files: true },
+        options(),
+      );
+      if (current !== epoch || scope !== selection) return;
+      await syncSession();
+    });
+  }
+
+  async function redoRevert() {
+    const session = selected.value;
+    if (!session?.revert || !canChangeHistory(session.id)) return;
+    const current = epoch;
+    const scope = selection;
+    await perform(async () => {
+      await api().session.revert.clear({ sessionID: session.id }, options());
+      if (current !== epoch || scope !== selection) return;
+      await syncSession();
     });
   }
 
@@ -1074,6 +1135,9 @@ export function useSessionState() {
     disconnect,
     selectSession,
     createSession,
+    forkMessage,
+    revertMessage,
+    redoRevert,
     send,
     switchAgent,
     switchModel,

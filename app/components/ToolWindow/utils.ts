@@ -88,6 +88,7 @@ export function toolColor(tool: string): string {
       return '#60a5fa';
     case 'edit':
     case 'multiedit':
+    case 'patch':
     case 'apply_patch':
       return '#f97316';
     case 'write':

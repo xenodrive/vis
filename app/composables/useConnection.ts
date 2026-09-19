@@ -1,12 +1,12 @@
 import { ref } from 'vue';
 import type { OpenCodeClient } from '@opencode/client';
 import EventWorker from '../workers/events?sharedworker';
-import type { EventCommand, EventMessage } from '../types/event-worker';
+import type { ConnectionStatus, EventCommand, EventMessage } from '../types/event-worker';
 import { createClient, type Connection } from '../utils/protocol/client';
 
 /** Own the HTTP client, request cancellation and shared event transport. */
 export function useConnection() {
-  const status = ref<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected');
+  const status = ref<ConnectionStatus>('disconnected');
   const streamError = ref('');
   let client: OpenCodeClient | undefined;
   let abort = new AbortController();
@@ -41,6 +41,8 @@ export function useConnection() {
 
   function startEvents(connection: Connection, receive: (message: EventMessage) => void) {
     stopEvents();
+    status.value = 'connecting';
+    streamError.value = '';
     const current = new EventWorker();
     worker = current;
     current.port.onmessage = ({ data }: MessageEvent<EventMessage>) => {
@@ -53,7 +55,7 @@ export function useConnection() {
     };
     current.onerror = (event) => {
       if (worker !== current) return;
-      status.value = 'reconnecting';
+      status.value = 'disconnected';
       streamError.value = event.message || 'The shared event worker failed. Reconnect to resume.';
     };
     current.port.start();

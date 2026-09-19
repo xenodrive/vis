@@ -1,7 +1,22 @@
 <template>
   <div class="statusbar" role="status" aria-live="polite">
     <div class="statusbar-section statusbar-left">
-      <span class="statusbar-text">{{ thinkingDisplayText }}</span>
+      <button
+        v-if="connectionStatus === 'disconnected'"
+        type="button"
+        class="statusbar-reconnect"
+        title="Reconnect to the server"
+        @click="emit('reconnect')"
+      >
+        🔴 Disconnected
+      </button>
+      <span v-else-if="connectionStatus === 'connecting'" class="statusbar-text">
+        🟡 Connecting…
+      </span>
+      <span v-else-if="connectionStatus === 'reconnecting'" class="statusbar-text">
+        🟡 Reconnecting…
+      </span>
+      <span v-else class="statusbar-text">{{ thinkingDisplayText }}</span>
     </div>
     <div
       class="statusbar-section statusbar-right"
@@ -13,12 +28,17 @@
 </template>
 
 <script setup lang="ts">
+import type { ConnectionStatus } from '../types/event-worker';
+
 defineProps<{
+  connectionStatus: ConnectionStatus;
   thinkingDisplayText: string;
   statusText: string;
   isStatusError: boolean;
   isRetryStatus: boolean;
 }>();
+
+const emit = defineEmits<{ (event: 'reconnect'): void }>();
 </script>
 
 <style scoped>
@@ -52,6 +72,24 @@ defineProps<{
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.statusbar-reconnect {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #fecaca;
+  font: inherit;
+  cursor: pointer;
+}
+
+.statusbar-reconnect:hover {
+  text-decoration: underline;
+}
+
+.statusbar-reconnect:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
 }
 
 .statusbar-right.is-error,

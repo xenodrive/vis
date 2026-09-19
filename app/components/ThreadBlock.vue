@@ -11,24 +11,13 @@
       @rendered="emit('message-rendered', getThreadUserRenderKey(root))"
     >
       <template #actions>
-        <button
-          v-if="isRevertedPreview"
-          type="button"
-          class="ib-action ib-action-undo ib-top-right"
+        <MessageHistoryActions
+          v-if="root.sessionID"
           :disabled="historyActionsDisabled"
-          @click="confirmUndoRevert()"
-        >
-          UNDO
-        </button>
-        <button
-          v-else-if="root.sessionID"
-          type="button"
-          class="ib-action ib-top-right"
-          :disabled="historyActionsDisabled"
-          @click="confirmFork()"
-        >
-          FORK
-        </button>
+          :reverted="isRevertedPreview"
+          :content="getMessageContent(root)"
+          @action="handleHistoryAction"
+        />
       </template>
       <template #title>{{ formatMessageTime(root.time.created) }}</template>
       <template #attachments>
@@ -111,6 +100,7 @@
 import { computed, Transition } from 'vue';
 import MessageViewer from './MessageViewer.vue';
 import UserMessageBox from './UserMessageBox.vue';
+import MessageHistoryActions from './MessageHistoryActions.vue';
 import ThreadFooter from './ThreadFooter.vue';
 import ThreadTarget from './ThreadTarget.vue';
 import { useMessages } from '../composables/useMessages';
@@ -366,17 +356,17 @@ function showThreadDiff(root: MessageInfo) {
   emit('show-message-diff', { messageKey: root.id, diffs });
 }
 
-function confirmFork() {
+function handleHistoryAction(action: 'Fork' | 'Revert' | 'Redo') {
+  if (props.historyActionsDisabled) return;
   const root = props.root;
   if (root.role !== 'user' || !root.sessionID || !root.id) return;
-  if (!window.confirm('Fork from this message?')) return;
-  emit('fork-message', { sessionId: root.sessionID, messageId: root.id });
-}
-
-function confirmUndoRevert() {
-  if (!props.sessionRevert) return;
-  if (!window.confirm('Undo revert?')) return;
-  emit('undo-revert');
+  if (action === 'Redo') {
+    if (props.sessionRevert) emit('undo-revert');
+  } else if (action === 'Fork') {
+    emit('fork-message', { sessionId: root.sessionID, messageId: root.id });
+  } else {
+    emit('revert-message', { sessionId: root.sessionID, messageId: root.id });
+  }
 }
 
 function buildMessageTarget(message?: MessageInfo): ThreadTargetType {
@@ -494,13 +484,9 @@ function getThreadUserRenderKey(root: MessageInfo): string {
   margin: 0;
 }
 
-.thread-block.is-reverted-preview > .thread-user {
+.thread-block.is-reverted-preview :deep(.user-message-title),
+.thread-block.is-reverted-preview :deep(.user-message-body) {
   opacity: 0.45;
-}
-
-.thread-block.is-reverted-preview > .thread-user > .ib-top-right {
-  position: relative;
-  z-index: 1;
 }
 
 .ib-msg-block {

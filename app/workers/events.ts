@@ -163,7 +163,7 @@ worker.onconnect = (event) => {
       else
         port.postMessage({
           type: 'status',
-          status: 'reconnecting',
+          status: 'disconnected',
           error: 'Event subscription expired. Reconnect to resume.',
         } satisfies EventMessage);
       return;

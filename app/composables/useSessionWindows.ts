@@ -43,6 +43,19 @@ export function useSessionWindows(state: ReturnType<typeof useSessionState>) {
   const liveMessages = new Set<string>();
   const activity = useSessionActivity(state, fw);
 
+  watch(suppressAutoWindows, (suppressed) => {
+    if (!suppressed) return;
+    for (const entry of fw.entries.value) {
+      if (
+        !entry.closable &&
+        ['tool:', 'reasoning:', 'subagent:', 'activity:', 'compaction:'].some((prefix) =>
+          entry.key.startsWith(prefix),
+        )
+      )
+        void fw.close(entry.key);
+    }
+  });
+
   function belongsToSelection(sessionID: string) {
     const visited = new Set<string>();
     let id: string | undefined = sessionID;

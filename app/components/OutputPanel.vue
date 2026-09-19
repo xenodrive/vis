@@ -71,10 +71,12 @@
       </div>
 
       <StatusBar
+        :connection-status="connectionStatus"
         :thinking-display-text="activityStatus || thinkingDisplayText"
         :status-text="statusText"
         :is-status-error="isStatusError"
         :is-retry-status="!!isRetryStatus"
+        @reconnect="emit('reconnect')"
       />
     </div>
   </div>
@@ -97,6 +99,7 @@ import type {
   ModelMeta,
 } from '../types/message';
 import type { MessageInfo } from '../types/message';
+import type { ConnectionStatus } from '../types/event-worker';
 
 const msg = useMessages();
 
@@ -108,6 +111,7 @@ const props = defineProps<{
   loadingHistory?: boolean;
   isFollowing: boolean;
   statusText: string;
+  connectionStatus: ConnectionStatus;
   activityStatus?: string;
   isStatusError: boolean;
   isThinking: boolean;
@@ -133,6 +137,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: 'reconnect'): void;
   (event: 'load-more'): void;
   (event: 'scroll'): void;
   (event: 'wheel', eventArg: WheelEvent): void;
