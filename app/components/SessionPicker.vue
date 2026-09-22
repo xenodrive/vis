@@ -85,6 +85,15 @@
               </div>
               <div v-if="!filteredProjects.length" class="picker-note">No matching projects</div>
             </div>
+            <button
+              type="button"
+              class="picker-more project-open-button"
+              :disabled="state.busy.value"
+              @click="openProjectPicker"
+            >
+              <Icon icon="lucide:folder-open" width="14" />
+              Open project…
+            </button>
           </div>
         </Dropdown>
         <button
@@ -201,6 +210,11 @@ import { resolveProjectColorHex } from '../utils/projects';
 import { useFavoriteProjects } from '../composables/useFavoriteProjects';
 
 const props = defineProps<{ state: ReturnType<typeof useSessionState>; mobile?: boolean }>();
+const emit = defineEmits<{ (event: 'open-directory'): void }>();
+function openProjectPicker() {
+  projectOpen.value = false;
+  emit('open-directory');
+}
 const { isFavorite, toggleFavorite } = useFavoriteProjects();
 const projectOpen = ref(false);
 const settingsOpen = ref(false);
@@ -681,5 +695,11 @@ button:disabled {
   border-radius: 5px;
   color: #cbd5e1;
   background: #0f172a;
+}
+.project-open-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 </style>

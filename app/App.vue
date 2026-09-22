@@ -48,7 +48,11 @@
           @dropdown-closed="focusInput"
         >
           <template #selection
-            ><SessionPicker ref="sessionPickerRef" :state="state" :mobile="isMobile"
+            ><SessionPicker
+              ref="sessionPickerRef"
+              :state="state"
+              :mobile="isMobile"
+              @open-directory="isProjectPickerOpen = true"
           /></template>
         </TopPanel>
       </header>
@@ -296,8 +300,9 @@
     <ProjectPicker
       :open="isProjectPickerOpen"
       :list-directory="state.listDirectory"
+      :open-directory="state.openProject"
+      :busy="busy"
       @close="isProjectPickerOpen = false"
-      @select="state.createSession"
     />
     <SettingsModal
       :open="isSettingsOpen"

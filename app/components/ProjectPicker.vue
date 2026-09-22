@@ -4,7 +4,8 @@
     class="modal-backdrop"
     @close="$emit('close')"
     @cancel.prevent
-    @click.self="dialogRef?.close()"
+    @keydown.esc.stop.prevent="handleClose"
+    @click.self="handleClose"
   >
     <div class="modal">
       <Dropdown
@@ -22,7 +23,12 @@
         <template #trigger>
           <header class="modal-header">
             <span class="modal-title">Open project</span>
-            <button type="button" class="modal-close-button" @click="handleClose">
+            <button
+              type="button"
+              class="modal-close-button"
+              :disabled="opening"
+              @click="handleClose"
+            >
               <Icon icon="lucide:x" :width="14" :height="14" />
             </button>
           </header>
@@ -32,24 +38,26 @@
               :value="rawInput"
               class="path-input"
               type="text"
+              :disabled="opening"
               placeholder="Directory path..."
               @input="handleInput"
               @keydown="handleInputKeydown"
             />
             <button type="button" class="open-button" :disabled="!canOpen" @click="handleOpen">
-              Open
+              {{ opening ? 'Opening…' : 'Open' }}
             </button>
           </div>
           <div v-if="error" class="error-text">{{ error }}</div>
+          <div v-if="openError" class="error-text">{{ openError }}</div>
         </template>
 
-        <DropdownItem v-if="showCurrentEntry" value=".">./</DropdownItem>
-        <DropdownItem v-if="showParentEntry" value="..">../</DropdownItem>
+        <DropdownItem v-if="showCurrentEntry" value="." :disabled="opening">./</DropdownItem>
+        <DropdownItem v-if="showParentEntry" value=".." :disabled="opening">../</DropdownItem>
         <DropdownItem
           v-for="item in suggestions"
           :key="item.name"
           :value="item.name"
-          :disabled="isDrillDownLocked"
+          :disabled="isDrillDownLocked || opening"
         >
           {{ item.name }}/
         </DropdownItem>
@@ -85,10 +93,11 @@ const props = defineProps<{
   open: boolean;
   homePath?: string;
   listDirectory: (directory: string, signal: AbortSignal) => Promise<FileNode[]>;
+  openDirectory: (directory: string) => Promise<boolean>;
+  busy: boolean;
 }>();
 
-const emit = defineEmits<{
-  (event: 'select', directory: string): void;
+defineEmits<{
   (event: 'close'): void;
 }>();
 
@@ -98,6 +107,8 @@ const inputRef = ref<HTMLInputElement | null>(null);
 const rawInput = ref('');
 const isLoading = ref(false);
 const error = ref('');
+const openError = ref('');
+const opening = ref(false);
 const allEntries = ref<FileNode[]>([]);
 const dropdownOpen = ref(false);
 const hasGitDirectory = ref(false);
@@ -163,7 +174,14 @@ const hasDirectoryEntries = computed(() =>
   allEntries.value.some((n) => n.type === 'directory' && !n.ignored),
 );
 
-const canOpen = computed(() => Boolean(resolveOpenDirectory()));
+const canOpen = computed(
+  () =>
+    !props.busy &&
+    !opening.value &&
+    !isLoading.value &&
+    !error.value &&
+    Boolean(resolveOpenDirectory()),
+);
 
 const isDrillDownLocked = computed(() => hasGitDirectory.value);
 
@@ -201,6 +219,7 @@ watch(
 
 function initPicker() {
   error.value = '';
+  openError.value = '';
   allEntries.value = [];
   hasGitDirectory.value = false;
   rawInput.value = '';
@@ -364,6 +383,7 @@ function longestCommonPrefix(strings: string[]): string {
 // ---------------------------------------------------------------------------
 
 function handleItemSelect(value: unknown) {
+  if (opening.value) return;
   if (typeof value !== 'string') return;
   if (value === '.') {
     nextTick(() => {
@@ -399,14 +419,23 @@ function goUp() {
   rawInput.value = collapseTilde(parent);
 }
 
-function handleOpen() {
+async function handleOpen() {
+  if (!canOpen.value) return;
   const target = resolveOpenDirectory();
   if (!target) return;
-  emit('select', target);
-  handleClose();
+  opening.value = true;
+  openError.value = '';
+  try {
+    if (await props.openDirectory(target)) dialogRef.value?.close();
+  } catch (cause) {
+    openError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    opening.value = false;
+  }
 }
 
 function handleClose() {
+  if (opening.value) return;
   dialogRef.value?.close();
 }
 

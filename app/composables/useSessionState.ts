@@ -625,6 +625,34 @@ export function useSessionState() {
     });
   }
 
+  async function openProject(path: string) {
+    if (busy.value) return false;
+    busy.value = true;
+    const current = epoch;
+    try {
+      const target = await api().location.get({ location: { directory: path } }, options());
+      if (current !== epoch) return false;
+      const result = await api().session.list(
+        { project: target.project.id, parentID: null, order: 'desc', limit: 1 },
+        options(),
+      );
+      if (current !== epoch) return false;
+      const session =
+        result.data[0] ??
+        (await api().session.create({ location: { directory: target.directory } }, options()));
+      if (current !== epoch) return false;
+      const projectList = await api().project.list(options());
+      if (current !== epoch) return false;
+      projects.value = projectList;
+      await selectSession(session);
+      if (current !== epoch) return false;
+      await loadSessions();
+      return current === epoch;
+    } finally {
+      if (current === epoch) busy.value = false;
+    }
+  }
+
   function canChangeHistory(sessionID: string) {
     return (
       selected.value?.id === sessionID &&
@@ -860,8 +888,8 @@ export function useSessionState() {
 
   async function listDirectory(path: string, signal: AbortSignal) {
     const response = await api().file.list(
-      { location: { directory: path }, path: '.' },
-      { signal },
+      { location: location(), path },
+      { signal: AbortSignal.any([signal, options().signal]) },
     );
     return response.data.map((entry) => {
       const name = entry.path.split('/').filter(Boolean).at(-1) ?? entry.path;
@@ -1135,6 +1163,7 @@ export function useSessionState() {
     disconnect,
     selectSession,
     createSession,
+    openProject,
     forkMessage,
     revertMessage,
     redoRevert,
