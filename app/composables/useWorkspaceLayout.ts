@@ -26,24 +26,12 @@ export function useWorkspaceLayout(
       else desktopSideCollapsed.value = value;
     },
   });
-  const viewport = window.visualViewport!;
-  function syncViewport() {
-    const root = document.documentElement;
-    root.style.setProperty('--viewport-height', `${viewport.height}px`);
-    root.style.setProperty('--viewport-top', `${viewport.offsetTop}px`);
-    root.style.setProperty('--viewport-left', `${viewport.offsetLeft}px`);
-    root.style.setProperty('--viewport-width', `${viewport.width}px`);
-    void nextTick(syncExtent);
-  }
   function changeLayout() {
     isMobile.value = mobileQuery.matches;
     mobileSideOpen.value = false;
     void nextTick(syncExtent);
   }
-  syncViewport();
   mobileQuery.addEventListener('change', changeLayout);
-  viewport.addEventListener('resize', syncViewport);
-  viewport.addEventListener('scroll', syncViewport);
   let resizing:
     | { axis: 'input' | 'side'; start: number; size: number; min: number; max: number }
     | undefined;
@@ -54,12 +42,14 @@ export function useWorkspaceLayout(
     const header = elements.header.value;
     const input = elements.input.value;
     if (!canvas || !header || !input) return;
-    const top = isMobile.value
-      ? viewport.offsetTop
-      : Math.max(0, header.getBoundingClientRect().bottom);
-    const height = isMobile.value
-      ? viewport.height
-      : Math.max(0, input.getBoundingClientRect().top - top);
+    if (isMobile.value) {
+      canvas.style.removeProperty('--canvas-top');
+      canvas.style.removeProperty('--canvas-height');
+      fw.setExtent(canvas.getBoundingClientRect().width, canvas.getBoundingClientRect().height);
+      return;
+    }
+    const top = Math.max(0, header.getBoundingClientRect().bottom);
+    const height = Math.max(0, input.getBoundingClientRect().top - top);
     canvas.style.setProperty('--canvas-top', `${top}px`);
     canvas.style.setProperty('--canvas-height', `${height}px`);
     fw.setExtent(canvas.getBoundingClientRect().width, height);
@@ -117,8 +107,6 @@ export function useWorkspaceLayout(
   window.addEventListener('resize', syncExtent);
   onBeforeUnmount(() => {
     mobileQuery.removeEventListener('change', changeLayout);
-    viewport.removeEventListener('resize', syncViewport);
-    viewport.removeEventListener('scroll', syncViewport);
     observer.disconnect();
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', end);

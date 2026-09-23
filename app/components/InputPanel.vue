@@ -188,6 +188,7 @@
               button-class="input-control input-dropdown-button"
               popup-class="input-dropdown-popup"
               auto-close
+              :auto-focus="!mobile"
               title="Agent (Tab)"
               @update:open="handleModelDropdownOpenChange"
             >
@@ -225,6 +226,7 @@
             :default-model-id="defaultModelId"
             :disabled="settingsLocked || !hasModelOptions"
             upward
+            :auto-focus="!mobile"
             @update:open="handleModelDropdownOpenChange"
           />
         </div>
@@ -234,6 +236,7 @@
             :options="thinkingOptions"
             :disabled="settingsLocked || !hasThinkingOptions"
             upward
+            :auto-focus="!mobile"
             @update:model-value="emit('update:selected-thinking', $event)"
             @update:open="handleModelDropdownOpenChange"
           />
@@ -325,6 +328,7 @@ type CommandOption = { name: string; description?: string; hints?: string[] };
 type AgentOption = { id: string; label: string; description?: string; color?: string };
 
 const props = defineProps<{
+  mobile: boolean;
   messageInput: string;
   canSend: boolean;
   selectedMode: string;
@@ -665,7 +669,7 @@ function openModelPicker() {
 }
 
 function handleModelDropdownOpenChange(open: boolean) {
-  if (!open) {
+  if (!open && !props.mobile) {
     nextTick(() => {
       textareaRef.value?.focus();
     });
@@ -902,7 +906,7 @@ const inputMessageStyle = computed(() => {
 }
 @media (max-width: 768px) {
   .input-panel .input-textarea {
-    font-size: 14px;
+    font-size: 16px;
     padding: 6px 8px;
     overflow: auto;
   }

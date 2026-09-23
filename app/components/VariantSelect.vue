@@ -2,12 +2,16 @@
 import { computed } from 'vue';
 import Dropdown from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
-const props = defineProps<{
-  modelValue?: string;
-  options: Array<string | undefined>;
-  disabled?: boolean;
-  upward?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    options: Array<string | undefined>;
+    disabled?: boolean;
+    upward?: boolean;
+    autoFocus?: boolean;
+  }>(),
+  { autoFocus: true },
+);
 const emit = defineEmits<{
   'update:modelValue': [value: string | undefined];
   'update:open': [open: boolean];
@@ -28,6 +32,7 @@ function label(value: string | undefined) {
       button-class="model-control"
       :popup-class="upward ? 'model-control-popup opens-upward' : 'model-control-popup'"
       auto-close
+      :auto-focus="autoFocus"
       title="Variant"
       @update:open="emit('update:open', $event)"
     >

@@ -13,14 +13,18 @@ export type ModelOption = {
   providerID?: string;
   providerLabel?: string;
 };
-const props = defineProps<{
-  modelValue: string;
-  options: ModelOption[];
-  disabled?: boolean;
-  defaultLabel?: string;
-  defaultModelId?: string;
-  upward?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: string;
+    options: ModelOption[];
+    disabled?: boolean;
+    defaultLabel?: string;
+    defaultModelId?: string;
+    upward?: boolean;
+    autoFocus?: boolean;
+  }>(),
+  { autoFocus: true },
+);
 const emit = defineEmits<{
   'update:modelValue': [value: string];
   'update:open': [open: boolean];
@@ -108,6 +112,7 @@ defineExpose({
       button-class="model-control"
       :popup-class="upward ? 'model-control-popup opens-upward' : 'model-control-popup'"
       auto-close
+      :auto-focus="autoFocus"
       title="Model"
     >
       <template #value="{ value: id }">
@@ -118,7 +123,12 @@ defineExpose({
         </div>
       </template>
       <div class="model-picker">
-        <DropdownSearch v-model="query" placeholder="Search..." class="model-search" />
+        <DropdownSearch
+          v-model="query"
+          placeholder="Search..."
+          class="model-search"
+          :auto-focus="autoFocus"
+        />
         <div class="model-picker-list">
           <DropdownItem v-if="defaultLabel" value="">
             <div class="model-dropdown-item">
@@ -198,7 +208,7 @@ defineExpose({
 }
 @media (max-width: 768px) {
   .model-picker {
-    max-height: calc(var(--viewport-height, 100dvh) * 0.6 - 14px);
+    max-height: calc(60svh - 14px);
   }
 }
 .model-search {

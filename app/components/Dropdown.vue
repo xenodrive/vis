@@ -163,7 +163,12 @@ function close() {
 }
 
 watch(isActive, (active) => {
-  if (!active) clearHighlight();
+  if (!active) {
+    clearHighlight();
+    if (props.autoFocus === false && menu.value?.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement).blur();
+    }
+  }
   emit('update:open', active);
   if (active) {
     nextTick(() => {
@@ -501,16 +506,20 @@ defineExpose({ moveHighlight, selectHighlighted, updateSearch, clearHighlight })
   .ui-dropdown-menu {
     position-anchor: auto !important;
     position-try-fallbacks: none !important;
-    top: calc(var(--viewport-top, 0px) + 8px) !important;
+    top: 8px !important;
     bottom: auto !important;
-    left: calc(var(--viewport-left, 0px) + 8px) !important;
+    left: 8px !important;
     right: auto !important;
     margin: 0 !important;
     translate: none !important;
-    width: calc(var(--viewport-width, 100vw) - 16px) !important;
+    width: calc(100vw - 16px) !important;
     min-width: 0 !important;
-    max-width: calc(var(--viewport-width, 100vw) - 16px) !important;
-    max-height: calc(var(--viewport-height, 100dvh) * 0.6) !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: 60svh !important;
+  }
+  .ui-dropdown-menu:is(.opens-upward, .input-dropdown-popup:not(.command-popup)) {
+    top: auto !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
   }
 }
 </style>

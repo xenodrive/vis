@@ -18,6 +18,22 @@
         overscroll-behavior: none;
         background: #888;
       }
+      @media (max-width: 768px) {
+        html,
+        body {
+          height: auto;
+          min-height: 100svh;
+          overflow-x: hidden;
+          overflow-y: auto;
+          overscroll-behavior: auto;
+        }
+        #app {
+          height: auto;
+          min-height: 100svh;
+          overflow: visible;
+          overscroll-behavior: auto;
+        }
+      }
     </style>
   </head>
   <body>

@@ -174,7 +174,7 @@
             <div class="input-resizer" @pointerdown="startInputResize"></div>
             <InputPanel
               ref="inputPanelRef"
-              @focus="isMobile && (headerVisible = false)"
+              :mobile="isMobile"
               :disabled="status !== 'connected' || busy || loading"
               :can-send="canSend"
               :agent-options="agentOptions"
@@ -1085,10 +1085,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
   --term-font-size: 13px;
   --term-line-height: 1.1;
   position: fixed;
-  top: var(--viewport-top, 0px);
-  left: var(--viewport-left, 0px);
-  width: var(--viewport-width, 100%);
-  height: var(--viewport-height, 100dvh);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100dvh;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -1372,8 +1372,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
 .tool-window-canvas {
   position: fixed;
   top: var(--canvas-top, 0px);
-  left: var(--viewport-left, 0px);
-  width: var(--viewport-width, 100%);
+  left: 0;
+  width: 100%;
   height: var(--canvas-height, 100%);
   pointer-events: none;
   overflow: clip;
@@ -1402,12 +1402,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
 }
 @media (max-width: 768px) {
   .app {
+    position: relative;
+    height: 100svh;
+    --mobile-input-height: clamp(144px, 24svh, 200px);
     --app-padding-top: max(6px, env(safe-area-inset-top));
     --app-padding-right: max(6px, env(safe-area-inset-right));
     --app-padding-left: max(6px, env(safe-area-inset-left));
     padding: var(--app-padding-top) var(--app-padding-right) max(6px, env(safe-area-inset-bottom))
       var(--app-padding-left);
     gap: 6px;
+  }
+  .app:has(.input-textarea:focus) {
+    height: 200svh;
   }
   .app-body,
   .app-main-column {
@@ -1433,15 +1439,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keydown));
     display: none;
   }
   .app-input {
-    /* Small viewport units stay stable when the software keyboard opens. */
-    height: clamp(144px, 24svh, 200px) !important;
+    height: var(--mobile-input-height) !important;
     min-height: 0;
     max-height: none;
   }
-  .app-input:has(.input-textarea:focus) {
-    height: clamp(108px, 18svh, 150px) !important;
+  .app:has(.input-textarea:focus) .app-input {
+    height: calc(var(--mobile-input-height) + 100svh) !important;
   }
   .tool-window-canvas {
+    top: 0;
+    height: 100svh;
     z-index: 60;
   }
 }
