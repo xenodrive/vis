@@ -182,6 +182,7 @@
               :agent-color="agentColor(composerAgent)"
               :resolve-agent-color="agentColor"
               :model-options="modelOptions"
+              :default-model-id="defaultModelId"
               :thinking-options="thinkingOptions"
               :has-model-options="modelOptions.length > 0"
               :has-thinking-options="thinkingOptions.length > 1"
@@ -195,7 +196,7 @@
               :message-input="messageInput"
               :selected-mode="composerAgent"
               :selected-model="selectedModel"
-              :selected-thinking="composerModel?.variant"
+              :selected-thinking="composerVariant"
               @update:message-input="messageInput = $event"
               @update:selected-mode="selectAgent"
               @update:selected-model="selectModel"
@@ -386,21 +387,31 @@ const commandOptions = computed(() => [
   ...state.commands.value.filter((command) => !['shell', 'compact'].includes(command.name)),
 ]);
 const pendingAgent = ref<string>();
-const pendingModel = ref<ModelRef>();
+const pendingModel = ref<ModelRef | null>();
+const pendingVariant = ref<{ value: string | undefined }>();
 const composerAgent = computed(
   () => pendingAgent.value ?? selected.value?.agent ?? agents.value[0]?.id ?? '',
 );
+const defaultComposerModel = computed(
+  () =>
+    agents.value.find((agent) => agent.id === composerAgent.value)?.model ??
+    state.defaultModel.value,
+);
+const composerVariant = computed(() =>
+  pendingVariant.value ? pendingVariant.value.value : selected.value?.model?.variant,
+);
 const composerModel = computed(() => {
-  if (pendingModel.value) return pendingModel.value;
-  const agentModel = agents.value.find((agent) => agent.id === composerAgent.value)?.model;
-  if (pendingAgent.value !== undefined && agentModel) return agentModel;
-  return selected.value?.model ?? agentModel ?? state.defaultModel.value;
+  const model =
+    pendingModel.value === undefined
+      ? (selected.value?.model ?? defaultComposerModel.value)
+      : (pendingModel.value ?? defaultComposerModel.value);
+  return model ? { ...model, variant: composerVariant.value } : undefined;
 });
 function selectAgent(agent: string) {
   if (running.value || busy.value || loading.value) return;
   updateComposerSelection(() => {
+    pendingVariant.value = { value: composerVariant.value };
     pendingAgent.value = agent;
-    pendingModel.value = undefined;
   });
 }
 function composerSelectionKey() {
@@ -425,19 +436,11 @@ function updateComposerSelection(update: () => void) {
   });
 }
 watch(
-  running,
-  (value) => {
-    if (!value) return;
-    pendingAgent.value = undefined;
-    pendingModel.value = undefined;
-  },
-  { flush: 'sync' },
-);
-watch(
   () => selected.value?.id,
   () => {
     pendingAgent.value = undefined;
     pendingModel.value = undefined;
+    pendingVariant.value = undefined;
   },
   { flush: 'sync' },
 );
@@ -626,13 +629,23 @@ const modelOptions = computed(() =>
     providerLabel: model.providerID,
   })),
 );
-const selectedModel = computed(() =>
-  composerModel.value ? `${composerModel.value.providerID}/${composerModel.value.id}` : '',
-);
+const defaultModelId = computed(() => {
+  const model = defaultComposerModel.value;
+  return model ? `${model.providerID}/${model.id}` : undefined;
+});
+const selectedModel = computed(() => {
+  const model =
+    pendingModel.value === null ? undefined : (pendingModel.value ?? selected.value?.model);
+  return model ? `${model.providerID}/${model.id}` : '';
+});
 const thinkingOptions = computed(() => [
   undefined,
   ...(models.value
-    .find((model) => `${model.providerID}/${model.id}` === selectedModel.value)
+    .find(
+      (model) =>
+        model.providerID === composerModel.value?.providerID &&
+        model.id === composerModel.value?.id,
+    )
     ?.variants.map((variant) => variant.id) ?? []),
 ]);
 function modelMeta(path?: string) {
@@ -744,32 +757,39 @@ async function selectNotification() {
 }
 function selectModel(id: string) {
   if (running.value || busy.value || loading.value) return;
+  if (id === '') {
+    updateComposerSelection(() => {
+      pendingVariant.value = { value: composerVariant.value };
+      pendingModel.value = null;
+    });
+    return;
+  }
   const model = models.value.find((model) => `${model.providerID}/${model.id}` === id);
   if (model) {
     updateComposerSelection(() => {
       pendingModel.value = { providerID: model.providerID, id: model.id };
+      pendingVariant.value = { value: undefined };
     });
   }
 }
 function selectVariant(variant: string | undefined) {
   if (running.value || busy.value || loading.value) return;
-  const model = composerModel.value;
-  if (model) {
+  if (composerModel.value) {
     updateComposerSelection(() => {
-      pendingModel.value = { ...model, variant };
+      pendingVariant.value = { value: variant };
     });
   }
 }
-async function applyHistoryEntry(entry: {
+function applyHistoryEntry(entry: {
   text: string;
   agent?: string;
-  model?: string;
-  variant?: string;
+  model?: string | null;
+  variant?: string | null;
 }) {
   messageInput.value = entry.text;
   if (entry.agent) selectAgent(entry.agent);
-  if (entry.model) await selectModel(entry.model);
-  if (entry.variant !== undefined) await selectVariant(entry.variant);
+  if (entry.model !== undefined) selectModel(entry.model ?? '');
+  if (entry.variant !== undefined) selectVariant(entry.variant ?? undefined);
 }
 async function send() {
   if (!canSend.value) return;
@@ -800,10 +820,6 @@ async function send() {
     if (selected.value?.id === id) {
       const sentIDs = new Set(sentAttachments.map((item) => item.id));
       attachments.value = attachments.value.filter((item) => !sentIDs.has(item.id));
-      if (!shellCommand && text.trim() !== '/compact' && pendingModel.value === model)
-        pendingModel.value = undefined;
-      if (!shellCommand && text.trim() !== '/compact' && pendingAgent.value === agent)
-        pendingAgent.value = undefined;
       inputPanelRef.value?.reset();
       if (isMobile.value) inputPanelRef.value?.blur();
       else focusInput();

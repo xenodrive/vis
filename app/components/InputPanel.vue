@@ -28,10 +28,16 @@
                   <span v-if="historyEntryProviderLabel(entry)" class="history-target-provider">
                     {{ historyEntryProviderLabel(entry) }}
                   </span>
-                  <span v-if="entry.variant" class="history-target-separator">&middot;</span>
-                  <span v-if="entry.variant" class="history-target-variant">{{
-                    entry.variant
-                  }}</span>
+                  <span
+                    v-if="historyEntryVariantDisplayName(entry)"
+                    class="history-target-separator"
+                    >&middot;</span
+                  >
+                  <span
+                    v-if="historyEntryVariantDisplayName(entry)"
+                    class="history-target-variant"
+                    >{{ historyEntryVariantDisplayName(entry) }}</span
+                  >
                 </div>
               </div>
               <button
@@ -74,10 +80,16 @@
                   <span v-if="historyEntryProviderLabel(entry)" class="history-target-provider">
                     {{ historyEntryProviderLabel(entry) }}
                   </span>
-                  <span v-if="entry.variant" class="history-target-separator">&middot;</span>
-                  <span v-if="entry.variant" class="history-target-variant">{{
-                    entry.variant
-                  }}</span>
+                  <span
+                    v-if="historyEntryVariantDisplayName(entry)"
+                    class="history-target-separator"
+                    >&middot;</span
+                  >
+                  <span
+                    v-if="historyEntryVariantDisplayName(entry)"
+                    class="history-target-variant"
+                    >{{ historyEntryVariantDisplayName(entry) }}</span
+                  >
                 </div>
               </div>
               <button
@@ -209,6 +221,8 @@
             ref="modelPickerRef"
             v-model="modelValue"
             :options="modelOptions"
+            default-label="<default>"
+            :default-model-id="defaultModelId"
             :disabled="settingsLocked || !hasModelOptions"
             upward
             @update:open="handleModelDropdownOpenChange"
@@ -317,6 +331,7 @@ const props = defineProps<{
   agentOptions: AgentOption[];
   hasAgentOptions: boolean;
   selectedModel: string;
+  defaultModelId?: string;
   selectedThinking: string | undefined;
   modelOptions: ModelOption[];
   thinkingOptions: Array<string | undefined>;
@@ -345,8 +360,8 @@ const emit = defineEmits<{
     payload: {
       text: string;
       agent?: string;
-      model?: string;
-      variant?: string;
+      model?: string | null;
+      variant?: string | null;
     },
   ): void;
   (event: 'send'): void;
@@ -388,8 +403,8 @@ type HistoryEntry = {
   text: string;
   agent?: string;
   agentColor?: string;
-  model?: string;
-  variant?: string;
+  model?: string | null;
+  variant?: string | null;
 };
 
 function findAgentOption(id: string | undefined) {
@@ -416,6 +431,7 @@ function historyEntryAgentStyle(entry: HistoryEntry) {
 }
 
 function historyEntryModelDisplayName(entry: HistoryEntry) {
+  if (entry.model === null) return '<default>';
   if (!entry.model) return undefined;
   return findModelOption(entry.model)?.displayName;
 }
@@ -425,12 +441,16 @@ function historyEntryProviderLabel(entry: HistoryEntry) {
   return findModelOption(entry.model)?.providerLabel;
 }
 
+function historyEntryVariantDisplayName(entry: HistoryEntry) {
+  return entry.variant === null ? '<default>' : entry.variant;
+}
+
 function hasHistoryEntryTarget(entry: HistoryEntry) {
   return Boolean(
     entry.agent ||
     historyEntryModelDisplayName(entry) ||
     historyEntryProviderLabel(entry) ||
-    entry.variant,
+    historyEntryVariantDisplayName(entry),
   );
 }
 
@@ -481,8 +501,8 @@ function bookmarkCurrentInput() {
     text,
     agent,
     agentColor: agentOption?.color || resolvedAgentColor,
-    model: props.selectedModel || undefined,
-    variant: props.selectedThinking,
+    model: props.selectedModel || null,
+    variant: props.selectedThinking ?? null,
   });
   messageValue.value = '';
   // Show toast
@@ -501,8 +521,10 @@ function toHistoryEntry(value: unknown): HistoryEntry | null {
   const entry: HistoryEntry = { text: candidate.text };
   if (typeof candidate.agent === 'string') entry.agent = candidate.agent;
   if (typeof candidate.agentColor === 'string') entry.agentColor = candidate.agentColor;
-  if (typeof candidate.model === 'string') entry.model = candidate.model;
-  if (typeof candidate.variant === 'string') entry.variant = candidate.variant;
+  if (typeof candidate.model === 'string' || candidate.model === null)
+    entry.model = candidate.model;
+  if (typeof candidate.variant === 'string' || candidate.variant === null)
+    entry.variant = candidate.variant;
   return entry;
 }
 

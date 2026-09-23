@@ -18,6 +18,7 @@ const props = defineProps<{
   options: ModelOption[];
   disabled?: boolean;
   defaultLabel?: string;
+  defaultModelId?: string;
   upward?: boolean;
 }>();
 const emit = defineEmits<{
@@ -27,9 +28,26 @@ const emit = defineEmits<{
 const root = ref<HTMLElement>();
 const open = ref(false);
 const query = ref('');
-function findModel(id: unknown) {
-  return props.options.find((model) => model.id === id);
-}
+const modelLabels = computed(() => {
+  const labels = new Map(
+    props.options.map((model) => [
+      model.id,
+      {
+        provider: model.providerLabel ?? model.providerID,
+        name: model.displayName,
+        path: [model.providerID, model.modelID].filter(Boolean).join('/'),
+      },
+    ]),
+  );
+  if (props.defaultLabel) {
+    labels.set('', {
+      provider: undefined,
+      name: props.defaultLabel,
+      path: props.defaultModelId ?? '',
+    });
+  }
+  return labels;
+});
 const value = computed({
   get: () => props.modelValue,
   set: (value: string) => emit('update:modelValue', value),
@@ -93,20 +111,21 @@ defineExpose({
       title="Model"
     >
       <template #value="{ value: id }">
-        <span v-if="defaultLabel && id === ''">{{ defaultLabel }}</span>
-        <div v-else class="model-button-label">
-          <span
-            v-if="findModel(id)?.providerLabel || findModel(id)?.providerID"
-            class="model-button-provider"
-            >{{ findModel(id)?.providerLabel ?? findModel(id)?.providerID }}</span
-          >
-          <span class="model-button-name">{{ findModel(id)?.displayName }}</span>
+        <div class="model-button-label">
+          <span class="model-button-provider">{{ modelLabels.get(id)?.provider }}</span>
+          <span class="model-button-name">{{ modelLabels.get(id)?.name }}</span>
+          <span class="model-button-path">{{ modelLabels.get(id)?.path }}</span>
         </div>
       </template>
       <div class="model-picker">
         <DropdownSearch v-model="query" placeholder="Search..." class="model-search" />
         <div class="model-picker-list">
-          <DropdownItem v-if="defaultLabel" value="">{{ defaultLabel }}</DropdownItem>
+          <DropdownItem v-if="defaultLabel" value="">
+            <div class="model-dropdown-item">
+              <span class="model-dropdown-name">{{ defaultLabel }}</span>
+              <span v-if="defaultModelId" class="model-dropdown-path">{{ defaultModelId }}</span>
+            </div>
+          </DropdownItem>
           <div v-if="!groups.length" class="model-empty">
             {{ options.length ? 'No matching models' : 'No models available' }}
           </div>
@@ -128,24 +147,25 @@ defineExpose({
 <style scoped src="./model-controls.css"></style>
 <style scoped>
 .model-button-label {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-rows: 9px 12px 9px;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  line-height: 1.15;
   text-align: left;
-  align-self: flex-start;
+  align-self: center;
+}
+.model-control-root :deep(.model-control) {
+  height: 36px;
+  padding-block: 2px;
 }
 .model-button-provider {
-  position: fixed;
   font-size: 9px;
   color: #94a3b8;
   white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
-  transform: translate(-3px, -11px);
+  line-height: 1;
 }
 .model-button-name {
   font-size: 12px;
@@ -153,6 +173,15 @@ defineExpose({
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1;
+}
+.model-button-path {
+  font-size: 9px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
 }
 .model-picker {
   display: flex;

@@ -47,6 +47,7 @@
       title=""
       tabindex="-1"
       @click.stop
+      @keydown.capture="onEscapeKeyDown"
       @keydown="onKeyDown"
     >
       <slot :close="close" :search-results="searchResults" :search-loading="searchLoading" />
@@ -289,6 +290,13 @@ function onKeyDown(e: KeyboardEvent) {
     moveHighlight(e.shiftKey ? 'up' : 'down');
     return;
   }
+}
+
+function onEscapeKeyDown(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !isActive.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  close();
 }
 
 function handlePointerDown(event: PointerEvent) {

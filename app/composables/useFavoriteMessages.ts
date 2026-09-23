@@ -5,8 +5,8 @@ export type FavoriteMessageEntry = {
   text: string;
   agent?: string;
   agentColor?: string;
-  model?: string;
-  variant?: string;
+  model?: string | null;
+  variant?: string | null;
 };
 
 const favorites = ref<FavoriteMessageEntry[]>(
@@ -33,15 +33,20 @@ function normalizeText(text: string) {
 }
 
 export function useFavoriteMessages() {
-  function isFavorite(entry: { text: string; agent?: string; model?: string; variant?: string }) {
+  function isFavorite(entry: {
+    text: string;
+    agent?: string;
+    model?: string | null;
+    variant?: string | null;
+  }) {
     const normalized = normalizeText(entry.text);
     if (!normalized) return false;
     return favorites.value.some(
       (fav) =>
         normalizeText(fav.text) === normalized &&
         (fav.agent ?? '') === (entry.agent ?? '') &&
-        (fav.model ?? '') === (entry.model ?? '') &&
-        (fav.variant ?? '') === (entry.variant ?? ''),
+        fav.model === entry.model &&
+        fav.variant === entry.variant,
     );
   }
 
