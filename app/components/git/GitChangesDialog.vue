@@ -98,6 +98,66 @@ const files = computed(() =>
       : []),
   ].toSorted((a, b) => a.path.localeCompare(b.path)),
 );
+type GitFile = { path: string; untracked: boolean };
+type FileRow = { type: 'file'; name: string; path: string; depth: number; file: GitFile };
+type DirectoryRow = {
+  type: 'directory';
+  name: string;
+  path: string;
+  depth: number;
+  paths: string[];
+};
+type FileNode = {
+  name: string;
+  path: string;
+  children: Map<string, FileNode>;
+  paths: string[];
+  file?: GitFile;
+};
+
+const fileRows = computed<(FileRow | DirectoryRow)[]>(() => {
+  const roots = new Map<string, FileNode>();
+  for (const file of files.value) {
+    const segments = file.path.split('/');
+    let children = roots;
+    let path = '';
+    for (const [index, name] of segments.entries()) {
+      path = path ? `${path}/${name}` : name;
+      let node = children.get(name);
+      if (!node) {
+        node = { name, path, children: new Map(), paths: [] };
+        children.set(name, node);
+      }
+      node.paths.push(file.path);
+      if (index === segments.length - 1) node.file = file;
+      children = node.children;
+    }
+  }
+
+  const rows: (FileRow | DirectoryRow)[] = [];
+  function append(children: Map<string, FileNode>, depth: number) {
+    const nodes = [...children.values()].sort((a, b) => {
+      if (Boolean(a.file) !== Boolean(b.file)) return a.file ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const node of nodes) {
+      if (node.file) {
+        rows.push({ type: 'file', name: node.name, path: node.path, depth, file: node.file });
+      } else {
+        rows.push({
+          type: 'directory',
+          name: node.name,
+          path: node.path,
+          depth,
+          paths: node.paths,
+        });
+        append(node.children, depth + 1);
+      }
+    }
+  }
+  append(roots, 0);
+  return rows;
+});
 const active = computed(
   () =>
     basePatches.value.find((file) => file.file === activePath.value) ??
@@ -145,6 +205,7 @@ const checkablePaths = computed(() =>
       : untrackedPaths.value
     : files.value.map((file) => file.path),
 );
+const checkablePathSet = computed(() => new Set(checkablePaths.value));
 const canCheckFiles = computed(
   () => !loading.value && !executing.value && checkablePaths.value.length > 0,
 );
@@ -156,6 +217,43 @@ function checkAll(checked: boolean) {
     selection.value = Object.fromEntries(
       checked ? checkablePaths.value.map((path) => [path, 'all']) : [],
     );
+}
+
+function directoryPaths(row: DirectoryRow) {
+  return row.paths.filter((path) => checkablePathSet.value.has(path));
+}
+
+function directorySelection(row: DirectoryRow) {
+  const paths = directoryPaths(row);
+  const selected = paths.filter((path) =>
+    committing.value ? untracked.value.includes(path) : selection.value[path] !== undefined,
+  );
+  if (!selected.length) return 'none';
+  if (
+    selected.length === paths.length &&
+    (committing.value || paths.every((path) => selection.value[path] === 'all'))
+  )
+    return 'all';
+  return 'partial';
+}
+
+function toggleDirectory(row: DirectoryRow) {
+  const paths = directoryPaths(row);
+  if (!paths.length) return;
+  const checked = directorySelection(row) !== 'all';
+  if (committing.value) {
+    const selected = new Set(untracked.value);
+    for (const path of paths) {
+      if (checked) selected.add(path);
+      else selected.delete(path);
+    }
+    untracked.value = [...selected];
+  } else {
+    for (const path of paths) {
+      if (checked) selection.value[path] = 'all';
+      else delete selection.value[path];
+    }
+  }
 }
 
 function fileStatus(file: { path: string; untracked: boolean }) {
@@ -454,40 +552,67 @@ onBeforeUnmount(() => {
     </div>
     <div class="git-panes" :aria-busy="loading">
       <nav class="git-files" aria-label="Changed files">
-        <div
-          v-for="file in files"
-          :key="file.path"
-          class="git-file"
-          :class="[{ active: activePath === file.path }, `git-status-${fileStatus(file)}`]"
-        >
-          <input
-            v-if="!committing"
-            type="checkbox"
-            :aria-label="`Select ${file.path}`"
-            :checked="selection[file.path] === 'all'"
-            :indeterminate="Array.isArray(selection[file.path])"
-            :disabled="disabled"
-            @change="toggleFile(file.path)"
-          />
-          <input
-            v-else-if="file.untracked"
-            type="checkbox"
-            :aria-label="`Include ${file.path}`"
-            :checked="untracked.includes(file.path)"
-            :disabled="loading || executing"
-            @change="toggleUntracked(file.path)"
-          />
-          <span v-else class="git-checkbox-spacer" aria-hidden="true"></span>
-          <button
-            type="button"
-            :title="file.path"
-            :disabled="loading || executing"
-            @click="selectFile(file.path)"
+        <template v-for="row in fileRows" :key="row.path">
+          <div
+            v-if="row.type === 'directory'"
+            class="git-directory"
+            :style="{ '--depth': row.depth }"
+            :title="row.path"
           >
-            <span class="git-file-name">{{ file.path }}</span>
-            <span class="git-file-status">{{ fileStatus(file) }}</span>
-          </button>
-        </div>
+            <input
+              v-if="directoryPaths(row).length"
+              type="checkbox"
+              :aria-label="`${committing ? 'Include untracked files' : 'Select files'} in ${row.path}`"
+              :checked="directorySelection(row) === 'all'"
+              :indeterminate="directorySelection(row) === 'partial'"
+              :disabled="committing ? loading || executing : disabled"
+              @change="toggleDirectory(row)"
+            />
+            <input
+              v-else
+              type="checkbox"
+              checked
+              disabled
+              :aria-label="`Include files in ${row.path}`"
+            />
+            <Icon icon="lucide:folder" :width="14" :height="14" aria-hidden="true" />
+            <span>{{ row.name }}</span>
+          </div>
+          <div
+            v-else
+            class="git-file"
+            :class="[{ active: activePath === row.path }, `git-status-${fileStatus(row.file)}`]"
+            :style="{ '--depth': row.depth }"
+          >
+            <input
+              v-if="!committing"
+              type="checkbox"
+              :aria-label="`Select ${row.path}`"
+              :checked="selection[row.path] === 'all'"
+              :indeterminate="Array.isArray(selection[row.path])"
+              :disabled="disabled"
+              @change="toggleFile(row.path)"
+            />
+            <input
+              v-else-if="row.file.untracked"
+              type="checkbox"
+              :aria-label="`Include ${row.path}`"
+              :checked="untracked.includes(row.path)"
+              :disabled="loading || executing"
+              @change="toggleUntracked(row.path)"
+            />
+            <input v-else type="checkbox" checked disabled :aria-label="`Include ${row.path}`" />
+            <button
+              type="button"
+              :title="row.path"
+              :disabled="loading || executing"
+              @click="selectFile(row.path)"
+            >
+              <span class="git-file-name">{{ row.name }}</span>
+              <span class="git-file-status">{{ fileStatus(row.file) }}</span>
+            </button>
+          </div>
+        </template>
         <p v-if="!files.length && !loading" class="git-notice">No changes.</p>
       </nav>
       <section class="git-diff" aria-label="File diff">
@@ -648,25 +773,39 @@ input:focus-visible {
 .git-files {
   border-right: 1px solid #334155;
 }
+.git-directory,
+.git-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  min-height: 28px;
+  padding: 0 10px 0 calc(10px + var(--depth) * 12px);
+}
+.git-directory {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.git-directory > svg {
+  flex-shrink: 0;
+}
 .git-diff {
   font-family: var(--term-font-family);
   font-size: var(--term-font-size);
   line-height: var(--term-line-height);
 }
 .git-file {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
   color: #e2e8f0;
 }
 .git-file > input,
-.git-checkbox-spacer {
+.git-directory > input {
   width: 14px;
   height: 14px;
   margin: 0;
+  flex-shrink: 0;
 }
 .git-file:hover {
   background: rgba(30, 41, 59, 0.5);
@@ -675,10 +814,10 @@ input:focus-visible {
   background: #1e293b;
 }
 .git-file button {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
+  display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1;
   border: 0;
   border-radius: 0;
   padding: 4px 0;
@@ -686,14 +825,14 @@ input:focus-visible {
   color: inherit;
   background: transparent;
   font-size: 12px;
-  min-width: 0;
+  white-space: nowrap;
 }
 .git-file-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  margin-right: auto;
 }
 .git-file-status {
+  flex-shrink: 0;
+  width: 18px;
   border: 1px solid currentColor;
   border-radius: 999px;
   height: 16px;
