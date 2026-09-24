@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import Dropdown from './Dropdown.vue';
+import { computed, ref } from 'vue';
+import Dropdown, { type DropdownAPI } from './Dropdown.vue';
 import DropdownItem from './Dropdown/Item.vue';
 import DropdownLabel from './Dropdown/Label.vue';
 import DropdownSearch from './Dropdown/Search.vue';
@@ -30,7 +30,7 @@ const emit = defineEmits<{
   'update:open': [open: boolean];
 }>();
 const root = ref<HTMLElement>();
-const open = ref(false);
+const dropdown = ref<DropdownAPI>();
 const query = ref('');
 const modelLabels = computed(() => {
   const labels = new Map(
@@ -84,20 +84,18 @@ const groups = computed(() => {
   }
   return [...groups.values()];
 });
-watch(open, (value) => {
-  if (value) query.value = '';
-  emit('update:open', value);
-});
+function handleOpenChange(open: boolean) {
+  if (open) query.value = '';
+  emit('update:open', open);
+}
 defineExpose({
   open() {
-    if (props.disabled) return false;
     root.value?.querySelector('button')?.focus();
-    open.value = true;
-    return true;
+    return dropdown.value?.open() === true;
   },
   reset() {
     query.value = '';
-    open.value = false;
+    dropdown.value?.close();
   },
 });
 </script>
@@ -105,8 +103,8 @@ defineExpose({
 <template>
   <div ref="root" class="model-control-root">
     <Dropdown
+      ref="dropdown"
       v-model="value"
-      v-model:open="open"
       :disabled="disabled"
       :placeholder="options.length ? 'Select model' : 'Loading models...'"
       button-class="model-control"
@@ -114,6 +112,7 @@ defineExpose({
       auto-close
       :auto-focus="autoFocus"
       title="Model"
+      @update:open="handleOpenChange"
     >
       <template #value="{ value: id }">
         <div class="model-button-label">

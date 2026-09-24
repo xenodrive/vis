@@ -72,6 +72,7 @@ import { Icon } from '@iconify/vue';
 
 export interface DropdownAPI {
   select: (item: unknown) => void;
+  open: () => boolean;
   close: () => void;
   selected: unknown | undefined;
   update: () => Promise<void>;
@@ -156,6 +157,12 @@ function updateCandidateValues() {
 function toggle() {
   if (props.disabled) return;
   isActive.value = !isActive.value;
+}
+
+function open() {
+  if (props.disabled) return false;
+  isActive.value = true;
+  return true;
 }
 
 function close() {
@@ -409,6 +416,7 @@ const api = reactive({
     if (item !== undefined) emit('update:modelValue', item);
     emit('select', item);
   },
+  open,
   close,
   selected: computed(() => props.modelValue),
   async update() {
@@ -422,7 +430,7 @@ const api = reactive({
 
 provide('x-selectable', api);
 
-defineExpose({ moveHighlight, selectHighlighted, updateSearch, clearHighlight });
+defineExpose({ open, close, moveHighlight, selectHighlighted, updateSearch, clearHighlight });
 </script>
 
 <style scoped>
