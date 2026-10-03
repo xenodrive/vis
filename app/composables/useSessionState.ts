@@ -127,7 +127,7 @@ export function useSessionState() {
   let sessionLookahead: SessionInfo | undefined;
   let messageRead = 0;
   const snapshotReads = new Map<string, number>();
-  const requestLocations = new Map<string, LocationPublicRef>();
+  const permissionLocations = new Map<string, LocationPublicRef>();
   const formLocations = new Map<string, LocationPublicRef>();
   let syncing = false;
   let syncAgain = false;
@@ -185,7 +185,7 @@ export function useSessionState() {
     activityStarts.clear();
     touched.clear();
     snapshotReads.clear();
-    requestLocations.clear();
+    permissionLocations.clear();
     formLocations.clear();
     historyLoaded = false;
     sessionsLoaded = false;
@@ -246,10 +246,24 @@ export function useSessionState() {
     const current = epoch;
     const scope = selection;
     const before = requestRevision;
+    const activeList = await api().session.active(options());
+    const activeSessions = await Promise.all(
+      Object.keys(activeList).map((sessionID) => api().session.get({ sessionID }, options())),
+    );
+    if (current !== epoch || scope !== selection) return;
+    const requestLocations = new Map<string, LocationPublicRef>();
     const register = (ref: LocationPublicRef) => requestLocations.set(JSON.stringify(ref), ref);
     register({ directory: directory.value });
-    for (const session of sessions.value) register(session.location);
+    for (const session of activeSessions) register(session.location);
     if (selected.value) register(selected.value.location);
+    for (const request of permissions.value) {
+      const ref = permissionLocations.get(request.id);
+      if (ref) register(ref);
+    }
+    for (const form of forms.value) {
+      const ref = formLocations.get(form.id);
+      if (ref) register(ref);
+    }
     const snapshots = await Promise.all(
       [...requestLocations.values()].map(async (ref) => {
         const query = { directory: ref.directory };
@@ -278,8 +292,12 @@ export function useSessionState() {
         snapshots.flatMap((snapshot) => snapshot.forms).map((form) => [form.id, form]),
       ).values(),
     ];
-    for (const snapshot of snapshots)
+    permissionLocations.clear();
+    formLocations.clear();
+    for (const snapshot of snapshots) {
+      for (const request of snapshot.permissions) permissionLocations.set(request.id, snapshot.ref);
       for (const form of snapshot.forms) formLocations.set(form.id, snapshot.ref);
+    }
   }
 
   async function loadMessages(more = false) {
@@ -367,10 +385,11 @@ export function useSessionState() {
     try {
       await loadSessions();
       if (current !== epoch) return;
+      await syncSession();
+      if (current !== epoch) return;
       const [projectList, activeList] = await Promise.all([
         api().project.list(options()),
         api().session.active(options()),
-        syncSession(),
         loadRequests(),
       ]);
       if (current !== epoch) return;
@@ -405,7 +424,8 @@ export function useSessionState() {
         event.location &&
         (event.type.startsWith('permission.') || event.type.startsWith('form.'))
       ) {
-        requestLocations.set(JSON.stringify(event.location), event.location);
+        if (event.type === 'permission.asked')
+          permissionLocations.set(event.data.id, event.location);
         if (event.type === 'form.created') formLocations.set(event.data.form.id, event.location);
       }
       if (event.type.startsWith('permission.') || event.type.startsWith('form.')) requestRevision++;
@@ -605,7 +625,9 @@ export function useSessionState() {
     const revision = ++loadingRevision;
     loading.value = true;
     try {
-      await Promise.all([syncSession(), loadCatalog(), loadRequests()]);
+      await syncSession();
+      if (current !== epoch || scope !== selection) return;
+      await Promise.all([loadCatalog(), loadRequests()]);
     } catch (cause) {
       if (current === epoch && scope === selection) report(cause);
     } finally {
