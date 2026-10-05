@@ -20,7 +20,7 @@ export const StorageKeys = {
     projects: 'favorites.projects.v1',
   },
   auth: {
-    credentials: 'auth.credentials.v1',
+    credentials: 'auth.credentials.v2',
   },
 } as const;
 

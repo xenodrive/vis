@@ -16,7 +16,7 @@ import type {
   LocationPublicRef,
 } from '@opencode/client';
 import { useConnection } from './useConnection';
-import type { Connection } from '../utils/protocol/client';
+import { redeemPairingLink, type Connection } from '../utils/protocol/client';
 import { errorMessage } from '../utils/errors';
 import { createPtyClient } from '../utils/protocol/pty';
 import { compareProjects } from '../utils/projects';
@@ -568,13 +568,20 @@ export function useSessionState() {
     syncAttention();
   }
 
-  async function connect(input: Connection) {
+  async function connect(
+    input: Connection | string,
+    authenticated?: (connection: Connection) => void,
+  ) {
     disconnect();
     error.value = '';
     status.value = 'connecting';
     const current = epoch;
     try {
-      transport.initialize(input);
+      const resolved =
+        typeof input === 'string' ? await redeemPairingLink(input, options().signal) : input;
+      if (current !== epoch) return;
+      transport.initialize(resolved);
+      authenticated?.(resolved);
       const [server, info] = await Promise.all([
         api().server.info(options()),
         api().location.get(undefined, options()),
@@ -582,7 +589,7 @@ export function useSessionState() {
       if (current !== epoch) return;
       version.value = server.version;
       directory.value = info.directory;
-      connection = { ...input };
+      connection = { ...resolved };
       await loadCatalog();
       if (current !== epoch) return;
       ready.value = true;

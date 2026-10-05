@@ -255,25 +255,11 @@
           <p class="app-loading-title">Connect to OpenCode Server</p>
           <div class="app-login-fields">
             <input
-              value="opencode"
-              type="text"
-              class="app-login-input"
-              placeholder="Username"
-              name="username"
-              readonly
-            />
-            <input
-              v-model="loginPassword"
-              type="password"
-              class="app-login-input"
-              placeholder="Password"
-              autocomplete="current-password"
-            />
-            <input
               v-model="loginUrl"
               type="url"
               class="app-login-input"
-              placeholder="Server URL from opencode2 pair"
+              placeholder="Pairing URL from opencode pair"
+              autocomplete="off"
               name="url"
               required
             />
@@ -523,7 +509,6 @@ const scroller = useAutoScroller(scrollEl, ref('follow'), {
 const isSettingsOpen = ref(false);
 const isProjectPickerOpen = ref(false);
 const loginUrl = ref('');
-const loginPassword = ref('');
 const composerDraft = useComposerDraft(
   computed(() => selected.value?.id),
   (cause) => {
@@ -913,8 +898,10 @@ watch([ready, projects], async ([connected]) => {
 });
 
 async function login() {
-  await state.connect({ url: loginUrl.value.trim(), password: loginPassword.value });
-  if (ready.value) credentials.save(loginUrl.value.trim(), 'opencode', loginPassword.value);
+  await state.connect(loginUrl.value.trim(), (connection) => {
+    credentials.save(connection);
+    loginUrl.value = '';
+  });
 }
 function logout() {
   credentials.clear();
@@ -1001,9 +988,7 @@ function keydown(event: KeyboardEvent) {
 }
 onMounted(() => {
   credentials.load();
-  loginUrl.value = credentials.url.value;
-  loginPassword.value = credentials.password.value;
-  if (credentials.isConfigured.value) void login();
+  if (credentials.connection.value) void state.connect(credentials.connection.value);
   window.addEventListener('keydown', keydown);
 });
 onBeforeUnmount(() => window.removeEventListener('keydown', keydown));

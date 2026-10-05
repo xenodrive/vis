@@ -21,19 +21,21 @@ const markdown = `\
 Allow this vis origin in the OpenCode service's CORS settings:
 
 \`\`\`bash
-opencode2 service set cors ${origin}
+opencode service set cors ${origin}
 \`\`\`
 
 **2. Get connection details**
 
-Start or reuse the service and display its connection details:
+Start or reuse the service and generate a one-time pairing link:
 \`\`\`bash
-opencode2 pair
+opencode pair
 \`\`\`
 
 **3. Connect to OpenCode**
 
-Enter the displayed URL and Password above, then select **Connect**.
+Paste the full pairing URL above, then select **Connect**. Do not open it first: each link works only once.
+
+Vis saves the session token for reconnection. If the link expires or has already been used, run \`opencode pair\` again to get a new one.
 
 `;
 </script>
